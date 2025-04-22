@@ -26,6 +26,8 @@ local Config = {
     RapidFireAmount = 1000,
     PredictionFactor = 0.5,
     SpinbotSpeed = 50,
+    WalkSpeed = 16, -- Default Roblox walkspeed
+    JumpPower = 50, -- Default Roblox jumppower
 }
 local BulletTPEnabled = false
 local AimbotEnabled = false
@@ -34,6 +36,8 @@ local FOVEnabled = false
 local RapidFireEnabled = false
 local SenseEnabled = false
 local SpinbotEnabled = false
+local WalkSpeedEnabled = false,
+local JumpPowerEnabled = false,
 local KillAllEnabled = false
 local SessionID = string.gsub(tostring(math.random()):sub(3), '%d', function(c)
     return string.char(96 + math.random(1, 26))
@@ -46,7 +50,19 @@ local AimbotTarget = nil
 local IsRightClickHeld = false
 local Sense = nil
 local TeleportLog = {}
+local function UpdateMovement()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('Humanoid') then
+        return
+    end
 
+    local humanoid = LocalPlayer.Character.Humanoid
+    if State.WalkSpeedEnabled then
+        humanoid.WalkSpeed = Config.WalkSpeed
+    end
+    if State.JumpPowerEnabled then
+        humanoid.JumpPower = Config.JumpPower
+    end
+end
 local Cheat = {
     Modules = {
         GunUtils = require(ReplicatedStorage.Library.GunUtils),
@@ -876,7 +892,55 @@ ExploitsGroup:AddToggle('KillAllToggle', {
         end
     end,
 })
+local CustomizationGroup = Tabs.Player:AddRightGroupbox('Customization')
 
+CustomizationGroup:AddToggle('WalkSpeedToggle', {
+    Text = 'Enable WalkSpeed',
+    Default = false,
+    Callback = function(Value)
+        WalkSpeedEnabled = Value
+        UpdateMovement()
+    end,
+})
+
+CustomizationGroup:AddSlider('WalkSpeedSlider', {
+    Text = 'Walk Speed',
+    Default = Config.WalkSpeed,
+    Min = 16,
+    Max = 100,
+    Rounding = 0,
+    Suffix = '',
+    Callback = function(Value)
+        Config.WalkSpeed = Value
+        if State.WalkSpeedEnabled then
+            UpdateMovement()
+        end
+    end,
+})
+
+CustomizationGroup:AddToggle('JumpPowerToggle', {
+    Text = 'Enable JumpPower',
+    Default = false,
+    Callback = function(Value)
+        JumpPowerEnabled = Value
+        UpdateMovement()
+    end,
+})
+
+CustomizationGroup:AddSlider('JumpPowerSlider', {
+    Text = 'Jump Power',
+    Default = Config.JumpPower,
+    Min = 50,
+    Max = 200,
+    Rounding = 0,
+    Suffix = '',
+    Callback = function(Value)
+        Config.JumpPower = Value
+        if State.JumpPowerEnabled then
+            UpdateMovement()
+        end
+    end,
+})
 local MenuGroup = Tabs.Settings:AddLeftGroupbox('Menu')
 
 MenuGroup:AddButton({
