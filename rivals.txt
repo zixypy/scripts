@@ -24,7 +24,9 @@ local Config = {
     AimbotSmoothing = 0,
     SkeletonESPColor = Color3.new(0, 0.25, 0.75),
     TracerOrigin = 'Bottom Screen',
-    RapidFireStrength = 99999999
+    RapidFireStrength = 99999999,
+    WalkSpeed = 16, -- Default Roblox walkspeed
+    JumpPower = 50, -- Default Roblox jumppower
 }
 
 local ESPSettings = {
@@ -33,7 +35,7 @@ local ESPSettings = {
 }
 
 local State = {
-    ESPDistance = 250,
+    ESPDistance = 325,
     SilentAimEnabled = false,
     SilentAimFOVEnabled = false,
     ESPCustomEnabled = false,
@@ -55,6 +57,8 @@ local State = {
     AimbotFOVCircle = nil,
     OriginalGravity = nil,
     FlyConnection = nil,
+    WalkSpeedEnabled = false,
+    JumpPowerEnabled = false,
 }
 
 local Caches = {
@@ -253,6 +257,26 @@ local function UpdateFly()
             end
         end)
     end
+
+    -- Reinitialize fly every 10 seconds
+    if not State.FlyReinitializeConnection then
+        State.FlyReinitializeConnection = coroutine.wrap(function()
+            while State.FlyEnabled do
+                wait(10)
+                if State.FlyEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+                    if State.FlyConnection then
+                        State.FlyConnection:Disconnect()
+                        State.FlyConnection = nil
+                    end
+                    if State.OriginalGravity then
+                        Workspace.Gravity = State.OriginalGravity
+                        State.OriginalGravity = nil
+                    end
+                    UpdateFly()
+                end
+            end
+        end)()
+    end
 end
 
 local function UpdateNoclip()
@@ -308,6 +332,20 @@ local function UpdateAimbot()
             local smoothedDelta = delta * smoothingFactor
             mousemoverel(smoothedDelta.X, smoothedDelta.Y)
         end
+    end
+end
+
+local function UpdateMovement()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('Humanoid') then
+        return
+    end
+
+    local humanoid = LocalPlayer.Character.Humanoid
+    if State.WalkSpeedEnabled then
+        humanoid.WalkSpeed = Config.WalkSpeed
+    end
+    if State.JumpPowerEnabled then
+        humanoid.JumpPower = Config.JumpPower
     end
 end
 
@@ -914,6 +952,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
         end
         UpdateInfiniteJump()
     end
+    UpdateMovement() -- Apply WalkSpeed and JumpPower on respawn
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -1142,7 +1181,7 @@ PlayerGroup:AddSlider('FlySpeedSlider', {
     Min = 10,
     Max = 200,
     Rounding = 0,
-    Suffix = 'Studs/Sec',
+    Suffix = '',
     Callback = function(Value)
         Config.FlySpeed = Value
     end,
@@ -1163,6 +1202,56 @@ PlayerGroup:AddToggle('InfiniteJumpToggle', {
     Callback = function(Value)
         State.InfiniteJumpEnabled = Value
         UpdateInfiniteJump()
+    end,
+})
+
+local CustomizationGroup = Tabs.Player:AddRightGroupbox('Customization')
+
+CustomizationGroup:AddToggle('WalkSpeedToggle', {
+    Text = 'Enable WalkSpeed',
+    Default = false,
+    Callback = function(Value)
+        State.WalkSpeedEnabled = Value
+        UpdateMovement()
+    end,
+})
+
+CustomizationGroup:AddSlider('WalkSpeedSlider', {
+    Text = 'Walk Speed',
+    Default = Config.WalkSpeed,
+    Min = 16,
+    Max = 100,
+    Rounding = 0,
+    Suffix = '',
+    Callback = function(Value)
+        Config.WalkSpeed = Value
+        if State.WalkSpeedEnabled then
+            UpdateMovement()
+        end
+    end,
+})
+
+CustomizationGroup:AddToggle('JumpPowerToggle', {
+    Text = 'Enable JumpPower',
+    Default = false,
+    Callback = function(Value)
+        State.JumpPowerEnabled = Value
+        UpdateMovement()
+    end,
+})
+
+CustomizationGroup:AddSlider('JumpPowerSlider', {
+    Text = 'Jump Power',
+    Default = Config.JumpPower,
+    Min = 50,
+    Max = 200,
+    Rounding = 0,
+    Suffix = '',
+    Callback = function(Value)
+        Config.JumpPower = Value
+        if State.JumpPowerEnabled then
+            UpdateMovement()
+        end
     end,
 })
 
@@ -1233,6 +1322,8 @@ Library:OnUnload(function()
     State.NoRecoilEnabled = false
     State.NoSpreadEnabled = false
     State.RapidFireEnabled = false
+    State.WalkSpeedEnabled = false
+    State.JumpPowerEnabled = false
     UpdateFly()
     UpdateNoclip()
     UpdateInfiniteJump()
@@ -1267,4 +1358,5 @@ RunService.RenderStepped:Connect(function()
     SafeExecute(UpdateHealthESP)
     SafeExecute(UpdateTracerESP)
     SafeExecute(UpdateAimbot)
+    SafeExecute(UpdateMovement)
 end)
