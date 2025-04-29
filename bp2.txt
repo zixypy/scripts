@@ -383,59 +383,71 @@ local function UpdateSpinbot()
 end
 
 local function TeleportEntities(cframe, team)
-    local spawnPosition = cframe * CFrame.new(0, 0, -15)
+    if not cframe then return end
 
-    local entitiesFolder = Workspace:FindFirstChild('__THINGS')
-        and Workspace.__THINGS:FindFirstChild('__ENTITIES')
+    -- Calculate spawn position 10 studs in front of the player
+    local spawnPosition = cframe * CFrame.new(0, 0, -10) -- Reduced distance for visibility
+
+    -- Handle NPCs in Workspace.__THINGS.__ENTITIES
+    local entitiesFolder = Workspace:FindFirstChild('__THINGS') and Workspace.__THINGS:FindFirstChild('__ENTITIES')
     if entitiesFolder then
         for _, entity in ipairs(entitiesFolder:GetChildren()) do
-            if entity:FindFirstChild('HumanoidRootPart') then
-                local humanoidRootPart = entity.HumanoidRootPart
-                humanoidRootPart.CanCollide = false
-                humanoidRootPart.Anchored = true
-                humanoidRootPart.CFrame = spawnPosition
-                local humanoid = entity:FindFirstChild('Humanoid')
-                if humanoid then
-                    humanoid.WalkSpeed = 0
-                    humanoid.JumpPower = 0
-                end
-            elseif entity:FindFirstChild('Hitbox') then
-                local directory = entity:GetAttribute('Directory')
-                if
-                    not (
-                        directory == 'White'
-                        and entity:GetAttribute('OwnerUID')
-                            == LocalPlayer.UserId
-                    )
-                    and (not team or directory ~= team.Name)
-                then
-                    entity.Hitbox.CanCollide = false
-                    entity.Hitbox.Anchored = true
-                    entity.Hitbox.CFrame = spawnPosition
-                end
-            end
-        end
-    end
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if
-            player ~= LocalPlayer
-            and player.Character
-            and player.Character:FindFirstChild('HumanoidRootPart')
-            and player.Character:FindFirstChild('Humanoid')
-        then
-            if not team or (player.Team and team.Name ~= player.Team.Name) then
-                if not player.Character:FindFirstChild('ForceField') then
-                    local humanoidRootPart = player.Character.HumanoidRootPart
-                    local humanoid = player.Character.Humanoid
+            SafeExecute(function()
+                if entity:FindFirstChild('HumanoidRootPart') then
+                    local humanoidRootPart = entity.HumanoidRootPart
+                    -- Set network ownership to local player if possible
+                    if humanoidRootPart:CanSetNetworkOwnership() then
+                        humanoidRootPart:SetNetworkOwner(LocalPlayer)
+                    end
                     humanoidRootPart.CanCollide = false
                     humanoidRootPart.Anchored = true
                     humanoidRootPart.CFrame = spawnPosition
-                    humanoid.WalkSpeed = 0
-                    humanoid.JumpPower = 0
+                    local humanoid = entity:FindFirstChild('Humanoid')
+                    if humanoid then
+                        humanoid.WalkSpeed = 0
+                        humanoid.JumpPower = 0
+                    end
+                elseif entity:FindFirstChild('Hitbox') then
+                    local directory = entity:GetAttribute('Directory')
+                    if not (directory == 'White' and entity:GetAttribute('OwnerUID') == LocalPlayer.UserId) then
+                        local hitbox = entity.Hitbox
+                        if hitbox:CanSetNetworkOwnership() then
+                            hitbox:SetNetworkOwner(LocalPlayer)
+                        end
+                        hitbox.CanCollide = false
+                        hitbox.Anchored = true
+                        hitbox.CFrame = spawnPosition
+                    end
+                end
+            end)
+        end
+    end
+
+    -- Handle other players
+    for _, player in ipairs(Players:GetPlayers()) do
+        SafeExecute(function()
+            if
+                player ~= LocalPlayer
+                and player.Character
+                and player.Character:FindFirstChild('HumanoidRootPart')
+                and player.Character:FindFirstChild('Humanoid')
+            then
+                if not (Config.TeamCheck and team and player.Team == team) then
+                    if not player.Character:FindFirstChild('ForceField') then
+                        local humanoidRootPart = player.Character.HumanoidRootPart
+                        if humanoidRootPart:CanSetNetworkOwnership() then
+                            humanoidRootPart:SetNetworkOwner(LocalPlayer)
+                        end
+                        humanoidRootPart.CanCollide = false
+                        humanoidRootPart.Anchored = true
+                        humanoidRootPart.CFrame = spawnPosition
+                        local humanoid = player.Character.Humanoid
+                        humanoid.WalkSpeed = 0
+                        humanoid.JumpPower = 0
+                    end
                 end
             end
-        end
+        end)
     end
 end
 
@@ -482,6 +494,7 @@ local function UpdateKillAll()
             or not LocalPlayer.Character
             or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
         then
+            RestoreEntities()
             return
         end
 
