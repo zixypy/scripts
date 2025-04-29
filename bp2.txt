@@ -581,7 +581,7 @@ AimbotGroup:AddSlider('PredictionFactorSlider', {
     Min = 0.1,
     Max = 2.0,
     Rounding = 1,
-    Suffix = 'Scale',
+    Suffix = '',
     Callback = function(Value)
         Config.PredictionFactor = Value
     end,
@@ -638,7 +638,7 @@ AimbotGroup:AddSlider('FOVSizeSlider', {
     Min = 50,
     Max = 300,
     Rounding = 0,
-    Suffix = 'Pixels',
+    Suffix = '',
     Callback = function(Value)
         Config.FOVRadius = Value
     end,
@@ -650,7 +650,7 @@ AimbotGroup:AddSlider('SmoothingSlider', {
     Min = 0,
     Max = 20,
     Rounding = 0,
-    Suffix = 'Speed',
+    Suffix = '',
     Callback = function(Value)
         Config.Smoothing = Value
     end,
@@ -840,7 +840,7 @@ ESPGroup:AddToggle('ESPTeamCheckToggle', {
 local ExploitsGroup = Tabs.Exploits:AddLeftGroupbox('Exploit Controls')
 
 ExploitsGroup:AddToggle('RapidFireToggle', {
-    Text = 'Rapid Fire',
+    Text = 'Rapid Fire [BUGGY]',
     Default = false,
     Callback = function(Value)
         RapidFireEnabled = Value
@@ -853,7 +853,7 @@ ExploitsGroup:AddSlider('RapidFireAmountSlider', {
     Min = 100,
     Max = 5000,
     Rounding = 0,
-    Suffix = 'RPM',
+    Suffix = '',
     Callback = function(Value)
         Config.RapidFireAmount = Value
     end,
@@ -873,7 +873,7 @@ ExploitsGroup:AddSlider('SpinbotSpeedSlider', {
     Min = 10,
     Max = 360,
     Rounding = 0,
-    Suffix = 'Degrees/Sec',
+    Suffix = '',
     Callback = function(Value)
         Config.SpinbotSpeed = Value
     end,
