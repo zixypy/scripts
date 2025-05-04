@@ -1,0 +1,250 @@
+local Players = game:GetService('Players')
+local RunService = game:GetService('RunService')
+local Workspace = game:GetService('Workspace')
+local UserInputService = game:GetService('UserInputService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+
+local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
+local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
+local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
+local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+
+local camera = Workspace.CurrentCamera
+local players = Players
+local LocalPlayer = players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+local WorldToScreenPoint = camera.WorldToScreenPoint
+local GetPlayers = Players.GetPlayers
+local FindFirstChild = game.FindFirstChild
+
+local Config = {
+    HitPart = 'Head',
+    TeamCheck = true,
+    FOVColor = Color3.fromRGB(255, 255, 255),
+    SilentAimFOVRadius = 100,
+    SilentAimHitChance = 100,
+}
+
+local State = {
+    SilentAimEnabled = false,
+    SilentAimFOVEnabled = false,
+    SilentAimFOVCircle = nil,
+}
+
+local function GetOnScreenPosition(V3)
+    local Position, IsVisible = WorldToScreenPoint(camera, V3)
+    return Vector2.new(Position.X, Position.Y), IsVisible
+end
+
+local function GetDirection(Origin, Position)
+    return (Position - Origin).Unit * (Origin - Position).Magnitude
+end
+
+local function GetClosestPlayer()
+    local Closest, Distance = nil, Config.SilentAimFOVRadius
+    local MousePos = camera.ViewportSize / 2 -- Center of the viewport
+
+    for _, Player in next, GetPlayers(Players) do
+        if Player ~= LocalPlayer then
+            local Character = Player.Character
+            local HitPart = Character and FindFirstChild(Character, Config.HitPart)
+            local Humanoid = Character and FindFirstChild(Character, "Humanoid")
+            if HitPart and (Humanoid and Humanoid.Health > 0) then
+                -- Check Team or TeamColor
+                local sameTeam = false
+                if Config.TeamCheck then
+                    if LocalPlayer.Team and Player.Team then
+                        sameTeam = LocalPlayer.Team == Player.Team
+                    elseif LocalPlayer.TeamColor and Player.TeamColor then
+                        sameTeam = LocalPlayer.TeamColor == Player.TeamColor
+                    elseif LocalPlayer:GetAttribute("Team") and Player:GetAttribute("Team") then
+                        sameTeam = LocalPlayer:GetAttribute("Team") == Player:GetAttribute("Team")
+                    end
+                end
+                if sameTeam then
+                    continue
+                end
+                local ScreenPos, IsVisible = GetOnScreenPosition(HitPart.Position)
+                if IsVisible then
+                    local _Distance = (MousePos - ScreenPos).Magnitude
+                    if _Distance <= Distance then
+                        Closest = HitPart
+                        Distance = _Distance
+                    end
+                end
+            end
+        end
+    end
+
+    return Closest, Distance
+end
+
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(...)
+    local Method = getnamecallmethod()
+    local Arguments = {...}
+
+    if State.SilentAimEnabled and Arguments[1] == Workspace and Method == "Raycast" then
+        if typeof(Arguments[#Arguments]) ~= "RaycastParams" then
+            return oldNamecall(...)
+        end
+
+        -- Apply hit chance
+        if math.random(1, 100) <= Config.SilentAimHitChance then
+            local HitPart = GetClosestPlayer()
+
+            if HitPart then
+                Arguments[3] = GetDirection(Arguments[2], HitPart.Position)
+                return oldNamecall(unpack(Arguments))
+            end
+        end
+    end
+
+    return oldNamecall(...)
+end)
+
+local function SafeExecute(func)
+    local success, errorMessage = pcall(func)
+    if not success then
+        warn("Error in SafeExecute: " .. tostring(errorMessage))
+    end
+end
+
+local function CreateFOVCircle()
+    local circle = Drawing.new('Circle')
+    circle.Thickness = 2
+    circle.Color = Config.FOVColor
+    circle.Filled = false
+    circle.Transparency = 1
+    circle.Visible = false
+    circle.ZIndex = 1
+    circle.Radius = Config.SilentAimFOVRadius
+    circle.Position = camera.ViewportSize / 2 -- Center of the viewport
+    return circle
+end
+
+local function UpdateFOVCircle()
+    if not State.SilentAimFOVCircle then
+        State.SilentAimFOVCircle = CreateFOVCircle()
+    end
+
+    State.SilentAimFOVCircle.Position = camera.ViewportSize / 2 -- Center of the viewport
+    State.SilentAimFOVCircle.Radius = Config.SilentAimFOVRadius
+    State.SilentAimFOVCircle.Visible = State.SilentAimFOVEnabled
+end
+
+local Window = Library:CreateWindow({
+    Title = 'Aimblox X',
+    Center = true,
+    AutoShow = true,
+    TabPadding = 8,
+    MenuFadeTime = 0.2,
+})
+
+local Tabs = {
+    Rage = Window:AddTab('Rage'),
+    Settings = Window:AddTab('UI Settings'),
+}
+
+local RageGroup = Tabs.Rage:AddLeftGroupbox('Rage Controls')
+
+RageGroup:AddToggle('SilentAimToggle', {
+    Text = 'Enable Silent Aim',
+    Default = false,
+    Callback = function(Value)
+        State.SilentAimEnabled = Value
+    end,
+})
+
+RageGroup:AddToggle('SilentAimFOVToggle', {
+    Text = 'Show FOV Circle',
+    Default = false,
+    Callback = function(Value)
+        State.SilentAimFOVEnabled = Value
+        if not State.SilentAimFOVEnabled and State.SilentAimFOVCircle then
+            State.SilentAimFOVCircle.Visible = false
+        end
+    end,
+})
+
+RageGroup:AddSlider('SilentAimFOVSizeSlider', {
+    Text = 'FOV Size',
+    Default = Config.SilentAimFOVRadius,
+    Min = 50,
+    Max = 500,
+    Rounding = 0,
+    Callback = function(Value)
+        Config.SilentAimFOVRadius = Value
+    end,
+})
+
+RageGroup:AddDropdown('HitPartDropdown', {
+    Text = 'Hit Part',
+    Default = Config.HitPart,
+    Values = {'Head', 'UpperTorso', 'LowerTorso', 'HumanoidRootPart'},
+    Callback = function(Value)
+        Config.HitPart = Value
+    end,
+})
+
+RageGroup:AddSlider('SilentAimHitChanceSlider', {
+    Text = 'Hit Chance (%)',
+    Default = Config.SilentAimHitChance,
+    Min = 0,
+    Max = 100,
+    Rounding = 0,
+    Callback = function(Value)
+        Config.SilentAimHitChance = Value
+    end,
+})
+
+local MenuGroup = Tabs.Settings:AddLeftGroupbox('Menu')
+
+MenuGroup:AddButton({
+    Text = 'Unload',
+    Func = function()
+        Library:Unload()
+    end,
+    Tooltip = 'Unloads the script',
+})
+
+MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', {
+    Default = 'RightShift',
+    NoUI = true,
+    Text = 'Menu keybind',
+})
+
+Library.ToggleKeybind = Options.MenuKeybind
+
+Library:SetWatermarkVisibility(true)
+Library:SetWatermark('Aimblox X | Made by zixy.py2')
+
+Library:OnUnload(function()
+    if State.SilentAimFOVCircle then
+        State.SilentAimFOVCircle:Remove()
+    end
+    State.SilentAimEnabled = false
+    State.SilentAimFOVEnabled = false
+    Library.Unloaded = true
+end)
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
+ThemeManager:SetFolder('AimbloxX')
+SaveManager:SetFolder('AimbloxX')
+SaveManager:BuildConfigSection(Tabs.Settings)
+ThemeManager:ApplyToTab(Tabs.Settings)
+SaveManager:LoadAutoloadConfig()
+
+Library:Notify(
+    'Cheat Loaded',
+    'Aimblox X is ready! Press RightShift to toggle GUI.',
+    5
+)
+
+RunService.RenderStepped:Connect(function()
+    SafeExecute(UpdateFOVCircle)
+end)
