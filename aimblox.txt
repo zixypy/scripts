@@ -20,7 +20,7 @@ local FindFirstChild = game.FindFirstChild
 
 local Config = {
     HitPart = 'Head',
-    TeamCheck = true,
+    TeamCheck = false,
     FOVColor = Color3.fromRGB(255, 255, 255),
     SilentAimFOVRadius = 100,
     SilentAimHitChance = 100,
