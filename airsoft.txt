@@ -1132,7 +1132,7 @@ MenuGroup:AddButton('Unload', function() Library:Unload() end)
 MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', { Default = 'RightShift', NoUI = true, Text = 'Menu keybind' })
 Library.ToggleKeybind = Options.MenuKeybind
 Library:SetWatermarkVisibility(true)
-Library:SetWatermark('Rush Point X | Made by zixy.py2')
+Library:SetWatermark('Airsoft Battles X | Made by zixy.py2')
 ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
