@@ -349,6 +349,7 @@ end
 
 local function UpdateMovement()
     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('Humanoid') then
+        print("humanoid not found")
         return
     end
 
@@ -1048,7 +1049,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 end)
 
 if LocalPlayer.Character then
-    local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid')
+    local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid', 20)
     if humanoid then
         UpdateMovement()
         if State.FlyEnabled then
@@ -1366,56 +1367,6 @@ PlayerGroup:AddToggle('InfiniteJumpToggle', {
     Callback = function(Value)
         State.InfiniteJumpEnabled = Value
         UpdateInfiniteJump()
-    end,
-})
-
-local CustomizationGroup = Tabs.Player:AddRightGroupbox('Customization')
-
-CustomizationGroup:AddToggle('WalkSpeedToggle', {
-    Text = 'Enable WalkSpeed',
-    Default = false,
-    Callback = function(Value)
-        State.WalkSpeedEnabled = Value
-        UpdateMovement()
-    end,
-})
-
-CustomizationGroup:AddSlider('WalkSpeedSlider', {
-    Text = 'Walk Speed',
-    Default = Config.WalkSpeed,
-    Min = 16,
-    Max = 100,
-    Rounding = 0,
-    Suffix = '',
-    Callback = function(Value)
-        Config.WalkSpeed = Value
-        if State.WalkSpeedEnabled then
-            UpdateMovement()
-        end
-    end,
-})
-
-CustomizationGroup:AddToggle('JumpPowerToggle', {
-    Text = 'Enable JumpPower',
-    Default = false,
-    Callback = function(Value)
-        State.JumpPowerEnabled = Value
-        UpdateMovement()
-    end,
-})
-
-CustomizationGroup:AddSlider('JumpPowerSlider', {
-    Text = 'Jump Power',
-    Default = Config.JumpPower,
-    Min = 50,
-    Max = 200,
-    Rounding = 0,
-    Suffix = '',
-    Callback = function(Value)
-        Config.JumpPower = Value
-        if State.JumpPowerEnabled then
-            UpdateMovement()
-        end
     end,
 })
 
