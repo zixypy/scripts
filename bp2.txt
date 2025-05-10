@@ -588,7 +588,7 @@ AimbotGroup:AddSlider('PredictionFactorSlider', {
 })
 
 AimbotGroup:AddToggle('BulletTPToggle', {
-    Text = 'Enable Bullet TP',
+    Text = 'Wallbang',
     Default = false,
     Callback = function(Value)
         BulletTPEnabled = Value
