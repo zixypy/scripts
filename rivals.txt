@@ -25,8 +25,8 @@ local Config = {
     SkeletonESPColor = Color3.new(0, 0.25, 0.75),
     TracerOrigin = 'Bottom Screen',
     RapidFireStrength = 99999999,
-    WalkSpeed = 16, -- Default Roblox walkspeed
-    JumpPower = 50, -- Default Roblox jumppower
+    WalkSpeed = 16,
+    JumpPower = 50,
 }
 
 local ESPSettings = {
@@ -38,6 +38,10 @@ local State = {
     ESPDistance = 325,
     SilentAimEnabled = false,
     SilentAimFOVEnabled = false,
+    SilentAim360FOV = false,
+    Aimbot360FOV = false,
+    WallbangEnabled = false,
+    Wallbang360FOV = false,
     ESPCustomEnabled = false,
     NameESPEnabled = false,
     DistanceESPEnabled = false,
@@ -59,6 +63,9 @@ local State = {
     FlyConnection = nil,
     WalkSpeedEnabled = false,
     JumpPowerEnabled = false,
+    OriginalCameraCFrame = nil,
+    OriginalPlayerCFrame = nil,
+    WallbangedPlayer = nil,
 }
 
 local Caches = {
@@ -108,7 +115,7 @@ local function get_players()
     return entities
 end
 
-local function get_closest_player(fovRadius)
+local function get_closest_player(fovRadius, isAimbot)
     local closest, closest_distance = nil, fovRadius
     local character = players.LocalPlayer.Character
     local team = LocalPlayer.Team
@@ -148,7 +155,10 @@ local function get_closest_player(fovRadius)
         if not shouldSkip then
             local center = UserInputService:GetMouseLocation()
             local distance = (center - Vector2.new(position.X, position.Y)).Magnitude
-            if distance <= closest_distance then
+            if (isAimbot and State.Aimbot360FOV) or (not isAimbot and State.SilentAim360FOV) or (not isAimbot and State.Wallbang360FOV) then
+                closest = player
+                closest_distance = distance
+            elseif distance <= closest_distance then
                 closest = player
                 closest_distance = distance
             end
@@ -160,8 +170,8 @@ end
 local oldRaycast = utility.Raycast
 utility.Raycast = function(...)
     local arguments = {...}
-    if State.SilentAimEnabled and #arguments > 0 and arguments[4] == 999 then
-        local closest = get_closest_player(Config.SilentAimFOVRadius)
+    if (State.SilentAimEnabled or (State.WallbangEnabled and State.Wallbang360FOV)) and #arguments > 0 and arguments[4] == 999 then
+        local closest = get_closest_player(Config.SilentAimFOVRadius, false)
         if closest then
             arguments[3] = closest.Head.Position
         end
@@ -178,13 +188,14 @@ end
 
 local function CreateFOVCircle(fovType)
     local circle = Drawing.new('Circle')
-    circle.Thickness = 2
+    local baseRadius = fovType == "SilentAim" and Config.SilentAimFOVRadius or Config.AimbotFOVRadius
+    circle.Thickness = 2 * (100 / baseRadius)
     circle.Color = Config.FOVColor
     circle.Filled = false
     circle.Transparency = 1
     circle.Visible = false
     circle.ZIndex = 1
-    circle.Radius = fovType == "SilentAim" and Config.SilentAimFOVRadius or Config.AimbotFOVRadius
+    circle.Radius = baseRadius
     circle.Position = UserInputService:GetMouseLocation()
     return circle
 end
@@ -199,11 +210,13 @@ local function UpdateFOVCircle()
 
     State.SilentAimFOVCircle.Position = UserInputService:GetMouseLocation()
     State.SilentAimFOVCircle.Radius = Config.SilentAimFOVRadius
-    State.SilentAimFOVCircle.Visible = State.SilentAimFOVEnabled
+    State.SilentAimFOVCircle.Thickness = 2 * (100 / Config.SilentAimFOVRadius)
+    State.SilentAimFOVCircle.Visible = State.SilentAimFOVEnabled and not State.SilentAim360FOV
 
     State.AimbotFOVCircle.Position = UserInputService:GetMouseLocation()
     State.AimbotFOVCircle.Radius = Config.AimbotFOVRadius
-    State.AimbotFOVCircle.Visible = State.AimbotFOVEnabled
+    State.AimbotFOVCircle.Thickness = 2 * (100 / Config.AimbotFOVRadius)
+    State.AimbotFOVCircle.Visible = State.AimbotFOVEnabled and not State.Aimbot360FOV
 end
 
 local function UpdateFly()
@@ -258,7 +271,6 @@ local function UpdateFly()
         end)
     end
 
-    -- Reinitialize fly every 10 seconds
     if not State.FlyReinitializeConnection then
         State.FlyReinitializeConnection = coroutine.wrap(function()
             while State.FlyEnabled do
@@ -322,7 +334,7 @@ local function UpdateAimbot()
         return
     end
 
-    local closest = get_closest_player(Config.AimbotFOVRadius)
+    local closest = get_closest_player(Config.AimbotFOVRadius, true)
     if closest and closest:FindFirstChild('Head') then
         local headPos, onScreen = camera:WorldToViewportPoint(closest.Head.Position)
         if onScreen then
@@ -343,9 +355,13 @@ local function UpdateMovement()
     local humanoid = LocalPlayer.Character.Humanoid
     if State.WalkSpeedEnabled then
         humanoid.WalkSpeed = Config.WalkSpeed
+    else
+        humanoid.WalkSpeed = 16
     end
     if State.JumpPowerEnabled then
         humanoid.JumpPower = Config.JumpPower
+    else
+        humanoid.JumpPower = 50
     end
 end
 
@@ -516,6 +532,11 @@ local function UpdateESP()
             continue
         end
 
+        if State.Wallbang360FOV and player == State.WallbangedPlayer then
+            ClearESP(player)
+            continue
+        end
+
         if not Caches.ESPCache[player] then
             Caches.ESPCache[player] = CreateESP(player)
         end
@@ -585,6 +606,11 @@ local function UpdateSkeletonESP()
         end
 
         if Config.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+            ClearSkeleton(player)
+            continue
+        end
+
+        if State.Wallbang360FOV and player == State.WallbangedPlayer then
             ClearSkeleton(player)
             continue
         end
@@ -800,6 +826,11 @@ local function UpdateHealthESP()
             continue
         end
 
+        if State.Wallbang360FOV and player == State.WallbangedPlayer then
+            ClearHealthESP(player)
+            continue
+        end
+
         if not Caches.HealthCache[player] then
             Caches.HealthCache[player] = CreateHealthESP(player)
         end
@@ -878,6 +909,11 @@ local function UpdateTracerESP()
             continue
         end
 
+        if State.Wallbang360FOV and player == State.WallbangedPlayer then
+            ClearTracer(player)
+            continue
+        end
+
         if not Caches.TracerCache[player] then
             Caches.TracerCache[player] = CreateTracer(player)
         end
@@ -890,12 +926,73 @@ local function UpdateTracerESP()
     end
 end
 
+local function UpdateCameraFreeze()
+    if State.Wallbang360FOV and State.OriginalCameraCFrame then
+        camera.CFrame = State.OriginalCameraCFrame
+    end
+end
+
+local function HandleWallbangTeleport()
+    if not State.WallbangEnabled or not State.Wallbang360FOV or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        return
+    end
+
+    local closest = get_closest_player(Config.SilentAimFOVRadius, false)
+    if closest and closest:FindFirstChild('HumanoidRootPart') then
+        State.WallbangedPlayer = Players:GetPlayerFromCharacter(closest) or closest
+        local targetRoot = closest.HumanoidRootPart
+        local forwardDirection = targetRoot.CFrame.LookVector
+        local teleportPos = targetRoot.Position + (forwardDirection * 10)
+        
+        teleportPos = Vector3.new(teleportPos.X, targetRoot.Position.Y, teleportPos.Z)
+        
+        local rayOrigin = targetRoot.Position
+        local rayDirection = forwardDirection * 10
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, closest}
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        
+        if raycastResult then
+            local hitDistance = (raycastResult.Position - rayOrigin).Magnitude
+            if hitDistance < 10 then
+                teleportPos = rayOrigin + (forwardDirection * (hitDistance - 1))
+                teleportPos = Vector3.new(teleportPos.X, targetRoot.Position.Y, teleportPos.Z)
+            end
+        end
+        
+        local targetPos = targetRoot.Position
+        local lookDirection = (targetPos - teleportPos).Unit
+        local flatLookDirection = Vector3.new(lookDirection.X, 0, lookDirection.Z).Unit
+        local newCFrame = CFrame.new(teleportPos) * CFrame.new(Vector3.new(0, 0, 0), flatLookDirection)
+        
+        LocalPlayer.Character.HumanoidRootPart.CFrame = newCFrame
+        
+        local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid')
+        if humanoid then
+            humanoid.AutoRotate = false
+        end
+        
+        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+    else
+        State.WallbangedPlayer = nil
+        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
+        if humanoid then
+            humanoid.AutoRotate = true
+        end
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    end
+end
+
 players.PlayerRemoving:Connect(function(player)
     SafeExecute(function()
         ClearESP(player)
         ClearSkeleton(player)
         ClearHealthESP(player)
         ClearTracer(player)
+        if player == State.WallbangedPlayer then
+            State.WallbangedPlayer = nil
+        end
     end)
 end)
 
@@ -908,6 +1005,9 @@ players.PlayerAdded:Connect(function(player)
                     ClearSkeleton(player)
                     ClearHealthESP(player)
                     ClearTracer(player)
+                    if player == State.WallbangedPlayer then
+                        State.WallbangedPlayer = nil
+                    end
                 end)
             end
         end)
@@ -919,6 +1019,9 @@ players.PlayerAdded:Connect(function(player)
                     ClearSkeleton(player)
                     ClearHealthESP(player)
                     ClearTracer(player)
+                    if player == State.WallbangedPlayer then
+                        State.WallbangedPlayer = nil
+                    end
                 end)
             end)
         end
@@ -952,13 +1055,20 @@ LocalPlayer.CharacterAdded:Connect(function(character)
         end
         UpdateInfiniteJump()
     end
-    UpdateMovement() -- Apply WalkSpeed and JumpPower on respawn
+    UpdateMovement()
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         State.AimbotLocking = true
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 and State.WallbangEnabled then
+        State.Wallbang360FOV = true
+        State.OriginalCameraCFrame = camera.CFrame
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+            State.OriginalPlayerCFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
+        end
+        HandleWallbangTeleport()
     end
 end)
 
@@ -966,6 +1076,19 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         State.AimbotLocking = false
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 and State.WallbangEnabled then
+        State.Wallbang360FOV = false
+        State.OriginalCameraCFrame = nil
+        if State.OriginalPlayerCFrame and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = State.OriginalPlayerCFrame
+            State.OriginalPlayerCFrame = nil
+        end
+        State.WallbangedPlayer = nil
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
+        if humanoid then
+            humanoid.AutoRotate = true
+        end
     end
 end)
 
@@ -1006,6 +1129,17 @@ LegitGroup:AddToggle('AimbotFOVToggle', {
         State.AimbotFOVEnabled = Value
         if not State.AimbotFOVEnabled and State.AimbotFOVCircle then
             State.AimbotFOVCircle.Visible = false
+        end
+    end,
+})
+
+LegitGroup:AddToggle('Aimbot360FOVToggle', {
+    Text = '360 FOV',
+    Default = false,
+    Callback = function(Value)
+        State.Aimbot360FOV = Value
+        if State.Aimbot360FOV then
+            State.AimbotFOVEnabled = false
         end
     end,
 })
@@ -1055,6 +1189,17 @@ RageGroup:AddToggle('SilentAimFOVToggle', {
     end,
 })
 
+RageGroup:AddToggle('SilentAim360FOVToggle', {
+    Text = '360 FOV',
+    Default = false,
+    Callback = function(Value)
+        State.SilentAim360FOV = Value
+        if State.SilentAim360FOV then
+            State.SilentAimFOVEnabled = false
+        end
+    end,
+})
+
 RageGroup:AddSlider('SilentAimFOVSizeSlider', {
     Text = 'FOV Size',
     Default = Config.SilentAimFOVRadius,
@@ -1064,6 +1209,20 @@ RageGroup:AddSlider('SilentAimFOVSizeSlider', {
     Suffix = '',
     Callback = function(Value)
         Config.SilentAimFOVRadius = Value
+    end,
+})
+
+RageGroup:AddToggle('WallbangToggle', {
+    Text = 'Enable Wallbang',
+    Default = false,
+    Callback = function(Value)
+        State.WallbangEnabled = Value
+        if not State.WallbangEnabled then
+            State.Wallbang360FOV = false
+            State.OriginalCameraCFrame = nil
+            State.OriginalPlayerCFrame = nil
+            State.WallbangedPlayer = nil
+        end
     end,
 })
 
@@ -1292,9 +1451,9 @@ MenuGroup:AddButton({
 })
 
 MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', {
+    Text = 'Menu keybind',
     Default = 'RightShift',
     NoUI = true,
-    Text = 'Menu keybind',
 })
 
 Library.ToggleKeybind = Options.MenuKeybind
@@ -1324,6 +1483,11 @@ Library:OnUnload(function()
     State.RapidFireEnabled = false
     State.WalkSpeedEnabled = false
     State.JumpPowerEnabled = false
+    State.WallbangEnabled = false
+    State.Wallbang360FOV = false
+    State.OriginalCameraCFrame = nil
+    State.OriginalPlayerCFrame = nil
+    State.WallbangedPlayer = nil
     UpdateFly()
     UpdateNoclip()
     UpdateInfiniteJump()
@@ -1359,4 +1523,6 @@ RunService.RenderStepped:Connect(function()
     SafeExecute(UpdateTracerESP)
     SafeExecute(UpdateAimbot)
     SafeExecute(UpdateMovement)
+    SafeExecute(UpdateCameraFreeze)
+    SafeExecute(HandleWallbangTeleport)
 end)
