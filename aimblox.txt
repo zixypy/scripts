@@ -24,12 +24,26 @@ local Config = {
     FOVColor = Color3.fromRGB(255, 255, 255),
     SilentAimFOVRadius = 100,
     SilentAimHitChance = 100,
+    DistancePosition = 'Bottom',
 }
 
 local State = {
     SilentAimEnabled = false,
     SilentAimFOVEnabled = false,
     SilentAimFOVCircle = nil,
+    WallbangEnabled = false,
+    WallbangActive = false,
+    OriginalCameraCFrame = nil,
+    OriginalPlayerCFrame = nil,
+    WallbangedPlayer = nil,
+    OriginalFOVRadius = Config.SilentAimFOVRadius,
+    VisualFOVRadius = Config.SilentAimFOVRadius,
+    DotsEnabled = false,
+    DotCache = {},
+    DistanceEnabled = false,
+    DistanceCache = {},
+    FrameCounter = 0,
+    MaxPlayersPerFrame = 10,
 }
 
 local function GetOnScreenPosition(V3)
@@ -43,15 +57,14 @@ end
 
 local function GetClosestPlayer()
     local Closest, Distance = nil, Config.SilentAimFOVRadius
-    local MousePos = camera.ViewportSize / 2 -- Center of the viewport
+    local MousePos = camera.ViewportSize / 2
 
     for _, Player in next, GetPlayers(Players) do
         if Player ~= LocalPlayer then
             local Character = Player.Character
             local HitPart = Character and FindFirstChild(Character, Config.HitPart)
             local Humanoid = Character and FindFirstChild(Character, "Humanoid")
-            if HitPart and (Humanoid and Humanoid.Health > 0) then
-                -- Check Team or TeamColor
+            if HitPart and Humanoid and Humanoid.Health > 0 then
                 local sameTeam = false
                 if Config.TeamCheck then
                     if LocalPlayer.Team and Player.Team then
@@ -62,9 +75,7 @@ local function GetClosestPlayer()
                         sameTeam = LocalPlayer:GetAttribute("Team") == Player:GetAttribute("Team")
                     end
                 end
-                if sameTeam then
-                    continue
-                end
+                if sameTeam then continue end
                 local ScreenPos, IsVisible = GetOnScreenPosition(HitPart.Position)
                 if IsVisible then
                     local _Distance = (MousePos - ScreenPos).Magnitude
@@ -85,15 +96,19 @@ oldNamecall = hookmetamethod(game, "__namecall", function(...)
     local Method = getnamecallmethod()
     local Arguments = {...}
 
-    if State.SilentAimEnabled and Arguments[1] == Workspace and Method == "Raycast" then
+    if (State.SilentAimEnabled or State.WallbangActive) and Arguments[1] == Workspace and Method == "Raycast" then
         if typeof(Arguments[#Arguments]) ~= "RaycastParams" then
             return oldNamecall(...)
         end
 
-        -- Apply hit chance
-        if math.random(1, 100) <= Config.SilentAimHitChance then
+        if State.SilentAimEnabled and math.random(1, 100) <= Config.SilentAimHitChance then
             local HitPart = GetClosestPlayer()
-
+            if HitPart then
+                Arguments[3] = GetDirection(Arguments[2], HitPart.Position)
+                return oldNamecall(unpack(Arguments))
+            end
+        elseif State.WallbangActive then
+            local HitPart = GetClosestPlayer()
             if HitPart then
                 Arguments[3] = GetDirection(Arguments[2], HitPart.Position)
                 return oldNamecall(unpack(Arguments))
@@ -119,20 +134,266 @@ local function CreateFOVCircle()
     circle.Transparency = 1
     circle.Visible = false
     circle.ZIndex = 1
-    circle.Radius = Config.SilentAimFOVRadius
-    circle.Position = camera.ViewportSize / 2 -- Center of the viewport
+    circle.Radius = State.VisualFOVRadius
+    circle.Position = camera.ViewportSize / 2
     return circle
 end
 
 local function UpdateFOVCircle()
+    if State.FrameCounter % 3 ~= 0 then return end
     if not State.SilentAimFOVCircle then
         State.SilentAimFOVCircle = CreateFOVCircle()
     end
-
-    State.SilentAimFOVCircle.Position = camera.ViewportSize / 2 -- Center of the viewport
-    State.SilentAimFOVCircle.Radius = Config.SilentAimFOVRadius
+    if not State.SilentAimFOVCircle then return end
+    State.SilentAimFOVCircle.Position = camera.ViewportSize / 2
+    State.SilentAimFOVCircle.Radius = State.VisualFOVRadius
     State.SilentAimFOVCircle.Visible = State.SilentAimFOVEnabled
 end
+
+local function CreateDot()
+    local dot = Drawing.new('Circle')
+    dot.Thickness = 1
+    dot.Color = Color3.fromRGB(255, 0, 0)
+    dot.Filled = true
+    dot.Transparency = 1
+    dot.Visible = false
+    dot.ZIndex = 2
+    dot.Radius = 5
+    return dot
+end
+
+local function CreateDistanceText()
+    local text = Drawing.new('Text')
+    text.Size = 16
+    text.Color = Color3.fromRGB(255, 255, 255)
+    text.Outline = true
+    text.Transparency = 1
+    text.Visible = false
+    text.ZIndex = 2
+    text.Center = true
+    return text
+end
+
+local function ClearDot(player)
+    if State.DotCache[player] then
+        State.DotCache[player]:Remove()
+        State.DotCache[player] = nil
+    end
+end
+
+local function ClearDistanceText(player)
+    if State.DistanceCache[player] then
+        State.DistanceCache[player]:Remove()
+        State.DistanceCache[player] = nil
+    end
+end
+
+local function UpdateVisuals()
+    State.FrameCounter = State.FrameCounter + 1
+    if State.FrameCounter % 3 ~= 0 then return end
+
+    if not State.DotsEnabled and not State.DistanceEnabled then
+        for player, _ in pairs(State.DotCache) do ClearDot(player) end
+        for player, _ in pairs(State.DistanceCache) do ClearDistanceText(player) end
+        return
+    end
+
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        for player, _ in pairs(State.DotCache) do ClearDot(player) end
+        for player, _ in pairs(State.DistanceCache) do ClearDistanceText(player) end
+        return
+    end
+
+    local closestHitPart = GetClosestPlayer()
+    local closestPlayer = closestHitPart and Players:GetPlayerFromCharacter(closestHitPart.Parent)
+    local playerCount = 0
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if playerCount >= State.MaxPlayersPerFrame then break end
+        if player == LocalPlayer then continue end
+
+        if not player.Character or not player.Character:FindFirstChild('HumanoidRootPart') or not player.Character:FindFirstChild('Humanoid') then
+            ClearDot(player)
+            ClearDistanceText(player)
+            continue
+        end
+
+        local character = player.Character
+        local humanoid = character.Humanoid
+        if humanoid.Health <= 0 then
+            ClearDot(player)
+            ClearDistanceText(player)
+            continue
+        end
+
+        local targetRoot = character.HumanoidRootPart
+        if Config.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+            ClearDot(player)
+            ClearDistanceText(player)
+            continue
+        end
+
+        local headPos, onScreen = camera:WorldToViewportPoint(targetRoot.Position)
+        local screenPos = Vector2.new(headPos.X, headPos.Y)
+        playerCount = playerCount + 1
+
+        if State.DotsEnabled then
+            if not State.DotCache[player] then
+                State.DotCache[player] = CreateDot()
+            end
+            local dot = State.DotCache[player]
+            if onScreen then
+                dot.Position = screenPos
+                dot.Color = (player == closestPlayer) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+                dot.Visible = true
+            else
+                dot.Visible = false
+            end
+        end
+
+        if State.DistanceEnabled then
+            if not State.DistanceCache[player] then
+                State.DistanceCache[player] = CreateDistanceText()
+            end
+            local distanceText = State.DistanceCache[player]
+            local distance = (LocalPlayer.Character.HumanoidRootPart.Position - targetRoot.Position).Magnitude
+            distanceText.Text = string.format("%.1f studs", distance)
+            if onScreen then
+                local posY
+                if Config.DistancePosition == 'Top' then
+                    posY = screenPos.Y - 20
+                elseif Config.DistancePosition == 'Mouse' then
+                    posY = screenPos.Y
+                else
+                    posY = screenPos.Y + 20
+                end
+                distanceText.Position = Vector2.new(screenPos.X, posY)
+                distanceText.Visible = true
+            else
+                distanceText.Visible = false
+            end
+        end
+    end
+end
+
+local function HandleWallbangTeleport()
+    if not State.WallbangEnabled or not State.WallbangActive or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        return
+    end
+
+    local ClosestHitPart = GetClosestPlayer()
+    if ClosestHitPart and ClosestHitPart.Parent and ClosestHitPart.Parent:FindFirstChild('HumanoidRootPart') then
+        local ClosestPlayer = Players:GetPlayerFromCharacter(ClosestHitPart.Parent) or ClosestHitPart.Parent
+        State.WallbangedPlayer = ClosestPlayer
+        local targetRoot = ClosestHitPart.Parent.HumanoidRootPart
+        local forwardDirection = targetRoot.CFrame.LookVector
+        local teleportPos = targetRoot.Position + (forwardDirection * -50)
+        
+        teleportPos = Vector3.new(teleportPos.X, targetRoot.Position.Y, teleportPos.Z)
+        
+        local rayOrigin = targetRoot.Position
+        local rayDirection = forwardDirection * 10
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, ClosestHitPart.Parent}
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        
+        if raycastResult then
+            local hitDistance = (raycastResult.Position - rayOrigin).Magnitude
+            if hitDistance < 10 then
+                teleportPos = rayOrigin + (forwardDirection * (hitDistance - 2))
+                teleportPos = Vector3.new(teleportPos.X, targetRoot.Position.Y, teleportPos.Z)
+            end
+        end
+        
+        local targetPos = targetRoot.Position
+        local lookDirection = (targetPos - teleportPos).Unit
+        local flatLookDirection = Vector3.new(lookDirection.X, 0, lookDirection.Z).Unit
+        local newCFrame = CFrame.new(teleportPos) * CFrame.new(Vector3.new(0, 0, 0), flatLookDirection)
+        
+        LocalPlayer.Character.HumanoidRootPart.CFrame = newCFrame
+        
+        local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid')
+        if humanoid then
+            humanoid.AutoRotate = false
+        end
+        
+        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+    else
+        State.WallbangedPlayer = nil
+        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
+        if humanoid then
+            humanoid.AutoRotate = true
+        end
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    end
+end
+
+local function UpdateCameraFreeze()
+    if State.WallbangActive and State.OriginalCameraCFrame then
+        camera.CFrame = State.OriginalCameraCFrame
+    end
+end
+
+Players.PlayerRemoving:Connect(function(player)
+    SafeExecute(function()
+        ClearDot(player)
+        ClearDistanceText(player)
+        if player == State.WallbangedPlayer then
+            State.WallbangedPlayer = nil
+        end
+    end)
+end)
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(character)
+        local humanoid = character:FindFirstChild('Humanoid')
+        if humanoid then
+            humanoid.Died:Connect(function()
+                SafeExecute(function()
+                    ClearDot(player)
+                    ClearDistanceText(player)
+                    if player == State.WallbangedPlayer then
+                        State.WallbangedPlayer = nil
+                    end
+                end)
+            end)
+        end
+    end)
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and State.WallbangEnabled then
+        State.WallbangActive = true
+        State.OriginalCameraCFrame = camera.CFrame
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+            State.OriginalPlayerCFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
+        end
+        State.OriginalFOVRadius = Config.SilentAimFOVRadius
+        Config.SilentAimFOVRadius = Config.SilentAimFOVRadius * 10
+        HandleWallbangTeleport()
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and State.WallbangEnabled then
+        State.WallbangActive = false
+        State.OriginalCameraCFrame = nil
+        if State.OriginalPlayerCFrame and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = State.OriginalPlayerCFrame
+            State.OriginalPlayerCFrame = nil
+        end
+        State.WallbangedPlayer = nil
+        Config.SilentAimFOVRadius = State.OriginalFOVRadius
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
+        if humanoid then
+            humanoid.AutoRotate = true
+        end
+    end
+end)
 
 local Window = Library:CreateWindow({
     Title = 'Aimblox X',
@@ -144,6 +405,7 @@ local Window = Library:CreateWindow({
 
 local Tabs = {
     Rage = Window:AddTab('Rage'),
+    Visuals = Window:AddTab('Visuals'),
     Settings = Window:AddTab('UI Settings'),
 }
 
@@ -176,6 +438,8 @@ RageGroup:AddSlider('SilentAimFOVSizeSlider', {
     Rounding = 0,
     Callback = function(Value)
         Config.SilentAimFOVRadius = Value
+        State.OriginalFOVRadius = Value
+        State.VisualFOVRadius = Value
     end,
 })
 
@@ -198,6 +462,65 @@ RageGroup:AddSlider('SilentAimHitChanceSlider', {
         Config.SilentAimHitChance = Value
     end,
 })
+
+RageGroup:AddToggle('WallbangToggle', {
+    Text = 'Enable Wallbang (BUGGY)',
+    Default = false,
+    Callback = function(Value)
+        State.WallbangEnabled = Value
+        if not State.WallbangEnabled then
+            State.WallbangActive = false
+            State.OriginalCameraCFrame = nil
+            State.OriginalPlayerCFrame = nil
+            State.WallbangedPlayer = nil
+            Config.SilentAimFOVRadius = State.OriginalFOVRadius
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
+            if humanoid then
+                humanoid.AutoRotate = true
+            end
+        end
+    end,
+})
+
+local VisualsGroup = Tabs.Visuals:AddLeftGroupbox('Visual Controls')
+
+VisualsGroup:AddToggle('DotsToggle', {
+    Text = 'Enable Player Dots',
+    Default = false,
+    Callback = function(Value)
+        State.DotsEnabled = Value
+        if not State.DotsEnabled then
+            for player, _ in pairs(State.DotCache) do
+                ClearDot(player)
+            end
+        end
+    end,
+})
+
+VisualsGroup:AddToggle('DistanceToggle', {
+    Text = 'Enable Distance Display',
+    Default = false,
+    Callback = function(Value)
+        State.DistanceEnabled = Value
+        if not State.DistanceEnabled then
+            for player, _ in pairs(State.DistanceCache) do
+                ClearDistanceText(player)
+            end
+        end
+    end,
+})
+
+VisualsGroup:AddDropdown('DistancePositionDropdown', {
+    Text = 'Distance Position',
+    Default = Config.DistancePosition,
+    Values = {'Top', 'Bottom'},
+    Callback = function(Value)
+        Config.DistancePosition = Value
+    end,
+})
+
+VisualsGroup:AddLabel('Team check broken :(')
 
 local MenuGroup = Tabs.Settings:AddLeftGroupbox('Menu')
 
@@ -224,8 +547,27 @@ Library:OnUnload(function()
     if State.SilentAimFOVCircle then
         State.SilentAimFOVCircle:Remove()
     end
+    for player, _ in pairs(State.DotCache) do
+        ClearDot(player)
+    end
+    for player, _ in pairs(State.DistanceCache) do
+        ClearDistanceText(player)
+    end
     State.SilentAimEnabled = false
     State.SilentAimFOVEnabled = false
+    State.WallbangEnabled = false
+    State.WallbangActive = false
+    State.OriginalCameraCFrame = nil
+    State.OriginalPlayerCFrame = nil
+    State.WallbangedPlayer = nil
+    Config.SilentAimFOVRadius = State.OriginalFOVRadius
+    State.DotsEnabled = false
+    State.DistanceEnabled = false
+    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
+    if humanoid then
+        humanoid.AutoRotate = true
+    end
     Library.Unloaded = true
 end)
 
@@ -247,4 +589,7 @@ Library:Notify(
 
 RunService.RenderStepped:Connect(function()
     SafeExecute(UpdateFOVCircle)
+    SafeExecute(UpdateVisuals)
+    SafeExecute(UpdateCameraFreeze)
+    SafeExecute(HandleWallbangTeleport)
 end)
