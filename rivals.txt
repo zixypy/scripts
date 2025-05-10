@@ -1029,34 +1029,39 @@ players.PlayerAdded:Connect(function(player)
 end)
 
 LocalPlayer.CharacterAdded:Connect(function(character)
+    local humanoid = character:WaitForChild('Humanoid', 20)
+    if not humanoid then
+        warn("Humanoid not found in character after waiting")
+        return
+    end
+
+    UpdateMovement()
     if State.FlyEnabled then
-        if State.FlyConnection then
-            State.FlyConnection:Disconnect()
-            State.FlyConnection = nil
-        end
-        if State.OriginalGravity then
-            Workspace.Gravity = State.OriginalGravity
-            State.OriginalGravity = nil
-        end
         UpdateFly()
     end
     if State.NoclipEnabled then
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA('BasePart') then
-                part.CanCollide = true
-            end
-        end
         UpdateNoclip()
     end
     if State.InfiniteJumpEnabled then
-        if State.FlyConnection then
-            State.FlyConnection:Disconnect()
-            State.FlyConnection = nil
-        end
         UpdateInfiniteJump()
     end
-    UpdateMovement()
 end)
+
+if LocalPlayer.Character then
+    local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid')
+    if humanoid then
+        UpdateMovement()
+        if State.FlyEnabled then
+            UpdateFly()
+        end
+        if State.NoclipEnabled then
+            UpdateNoclip()
+        end
+        if State.InfiniteJumpEnabled then
+            UpdateInfiniteJump()
+        end
+    end
+end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
