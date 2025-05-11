@@ -15,7 +15,7 @@ local utility = require(ReplicatedStorage.Modules.Utility)
 local LocalPlayer = players.LocalPlayer
 
 local Config = {
-    HitPart = 'Head',
+    HitPart = 'Head', -- Default hit part
     TeamCheck = true,
     FOVColor = Color3.fromRGB(255, 255, 255),
     SilentAimFOVRadius = 100,
@@ -57,6 +57,7 @@ local State = {
     NoRecoilEnabled = false,
     NoSpreadEnabled = false,
     RapidFireEnabled = false,
+    RagebotEnabled = false,
     SilentAimFOVCircle = nil,
     AimbotFOVCircle = nil,
     OriginalGravity = nil,
@@ -66,6 +67,7 @@ local State = {
     OriginalCameraCFrame = nil,
     OriginalPlayerCFrame = nil,
     WallbangedPlayer = nil,
+    IsRagebotShooting = false, -- New state to track Ragebot shooting
 }
 
 local Caches = {
@@ -173,7 +175,7 @@ utility.Raycast = function(...)
     if (State.SilentAimEnabled or (State.WallbangEnabled and State.Wallbang360FOV)) and #arguments > 0 and arguments[4] == 999 then
         local closest = get_closest_player(Config.SilentAimFOVRadius, false)
         if closest then
-            arguments[3] = closest.Head.Position
+            arguments[3] = closest[Config.HitPart].Position
         end
     end
     return oldRaycast(table.unpack(arguments))
@@ -984,6 +986,58 @@ local function HandleWallbangTeleport()
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     end
 end
+local function is_target_visible(target, hitPart)
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') or not target or not target:FindFirstChild(hitPart) then
+        return false
+    end
+
+    local rayOrigin = camera.CFrame.Position
+    local rayDirection = (target[hitPart].Position - rayOrigin).Unit * 1000
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+    local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    if raycastResult then
+        local hitInstance = raycastResult.Instance
+        return hitInstance and hitInstance:IsDescendantOf(target)
+    end
+    return false
+end
+
+local function UpdateRagebot()
+    if not State.RagebotEnabled or not LocalPlayer.Character then
+        if State.IsRagebotShooting then
+            mouse1release()
+            State.IsRagebotShooting = false
+        end
+        return -- Do not touch mouse inputs when Ragebot is off
+    end
+
+    local closest = get_closest_player(Config.SilentAimFOVRadius, false)
+    if closest and closest:FindFirstChild(Config.HitPart) then
+        local _, onScreen = camera:WorldToViewportPoint(closest[Config.HitPart].Position)
+        local isVisible = is_target_visible(closest, Config.HitPart)
+        
+        if onScreen and isVisible then
+            State.SilentAimEnabled = true
+            if not State.IsRagebotShooting then
+                mouse1press()
+                State.IsRagebotShooting = true
+            end
+        else
+            if State.IsRagebotShooting then
+                mouse1release()
+                State.IsRagebotShooting = false
+            end
+        end
+    else
+        if State.IsRagebotShooting then
+            mouse1release()
+            State.IsRagebotShooting = false
+        end
+    end
+end
 
 players.PlayerRemoving:Connect(function(player)
     SafeExecute(function()
@@ -1065,24 +1119,24 @@ if LocalPlayer.Character then
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+    if gameProcessed or not State.WallbangEnabled then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         State.AimbotLocking = true
-    elseif input.UserInputType == Enum.UserInputType.MouseButton1 and State.WallbangEnabled then
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
         State.Wallbang360FOV = true
         State.OriginalCameraCFrame = camera.CFrame
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
             State.OriginalPlayerCFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
         end
-        HandleWallbangTeleport()
+        SafeExecute(HandleWallbangTeleport)
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+    if gameProcessed or not State.WallbangEnabled then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         State.AimbotLocking = false
-    elseif input.UserInputType == Enum.UserInputType.MouseButton1 and State.WallbangEnabled then
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
         State.Wallbang360FOV = false
         State.OriginalCameraCFrame = nil
         if State.OriginalPlayerCFrame and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
@@ -1217,7 +1271,14 @@ RageGroup:AddSlider('SilentAimFOVSizeSlider', {
         Config.SilentAimFOVRadius = Value
     end,
 })
-
+RageGroup:AddDropdown('HitPartDropdown', {
+    Text = 'Hit Part',
+    Default = Config.HitPart,
+    Values = {'Head', 'UpperTorso', 'LowerTorso'},
+    Callback = function(Value)
+        Config.HitPart = Value
+    end,
+})
 RageGroup:AddToggle('WallbangToggle', {
     Text = 'Enable Wallbang',
     Default = false,
@@ -1228,6 +1289,18 @@ RageGroup:AddToggle('WallbangToggle', {
             State.OriginalCameraCFrame = nil
             State.OriginalPlayerCFrame = nil
             State.WallbangedPlayer = nil
+        end
+    end,
+})
+
+RageGroup:AddToggle('RagebotToggle', {
+    Text = 'Enable Ragebot',
+    Default = false,
+    Callback = function(Value)
+        State.RagebotEnabled = Value
+        if State.RagebotEnabled and State.IsRagebotShooting then
+            mouse1release()
+            State.IsRagebotShooting = false
         end
     end,
 })
@@ -1407,7 +1480,7 @@ MenuGroup:AddButton({
 })
 
 MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', {
-    Text = 'Menu keybind',
+    Text = 'Menu keybind:',
     Default = 'RightShift',
     NoUI = true,
 })
@@ -1441,9 +1514,14 @@ Library:OnUnload(function()
     State.JumpPowerEnabled = false
     State.WallbangEnabled = false
     State.Wallbang360FOV = false
+    State.RagebotEnabled = false
     State.OriginalCameraCFrame = nil
     State.OriginalPlayerCFrame = nil
     State.WallbangedPlayer = nil
+    if State.IsRagebotShooting then
+        mouse1release()
+        State.IsRagebotShooting = false
+    end
     UpdateFly()
     UpdateNoclip()
     UpdateInfiniteJump()
@@ -1481,4 +1559,5 @@ RunService.RenderStepped:Connect(function()
     SafeExecute(UpdateMovement)
     SafeExecute(UpdateCameraFreeze)
     SafeExecute(HandleWallbangTeleport)
+    SafeExecute(UpdateRagebot)
 end)
