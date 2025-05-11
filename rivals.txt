@@ -15,7 +15,7 @@ local utility = require(ReplicatedStorage.Modules.Utility)
 local LocalPlayer = players.LocalPlayer
 
 local Config = {
-    HitPart = 'Head', -- Default hit part
+    HitPart = 'Head',
     TeamCheck = true,
     FOVColor = Color3.fromRGB(255, 255, 255),
     SilentAimFOVRadius = 100,
@@ -27,6 +27,9 @@ local Config = {
     RapidFireStrength = 99999999,
     WalkSpeed = 16,
     JumpPower = 50,
+    SilentAimHitchance = 100,
+    ProjectileSpeed = 1000,
+    ChamsColor = Color3.new(1, 0, 0),
 }
 
 local ESPSettings = {
@@ -67,7 +70,11 @@ local State = {
     OriginalCameraCFrame = nil,
     OriginalPlayerCFrame = nil,
     WallbangedPlayer = nil,
-    IsRagebotShooting = false, -- New state to track Ragebot shooting
+    IsRagebotShooting = false,
+    PredictionEnabled = false,
+    ChamsEnabled = false,
+    TriggerbotEnabled = false,
+    IsTriggerbotShooting = false,
 }
 
 local Caches = {
@@ -75,6 +82,7 @@ local Caches = {
     SkeletonCache = {},
     HealthCache = {},
     TracerCache = {},
+    ChamsCache = {},
 }
 
 local SessionID = string.gsub(tostring(math.random()):sub(3), '%d', function(c)
@@ -117,6 +125,16 @@ local function get_players()
     return entities
 end
 
+local function predict_position(target, part)
+    if not State.PredictionEnabled or not target or not target:FindFirstChild(part) or not target:FindFirstChild("HumanoidRootPart") then
+        return target and target[part].Position
+    end
+    local velocity = target.HumanoidRootPart.Velocity
+    local distance = (LocalPlayer.Character.HumanoidRootPart.Position - target[part].Position).Magnitude
+    local travel_time = distance / Config.ProjectileSpeed
+    return target[part].Position + (velocity * travel_time)
+end
+
 local function get_closest_player(fovRadius, isAimbot)
     local closest, closest_distance = nil, fovRadius
     local character = players.LocalPlayer.Character
@@ -149,7 +167,14 @@ local function get_closest_player(fovRadius, isAimbot)
             end
         end
 
-        local position, on_screen = camera:WorldToViewportPoint(player.HumanoidRootPart.Position)
+        local position, on_screen
+        if isAimbot and State.PredictionEnabled then
+            local predicted_pos = predict_position(player, Config.HitPart)
+            position, on_screen = camera:WorldToViewportPoint(predicted_pos)
+        else
+            position, on_screen = camera:WorldToViewportPoint(player[Config.HitPart].Position)
+        end
+
         if not shouldSkip and on_screen == false then
             shouldSkip = true
         end
@@ -173,9 +198,13 @@ local oldRaycast = utility.Raycast
 utility.Raycast = function(...)
     local arguments = {...}
     if (State.SilentAimEnabled or (State.WallbangEnabled and State.Wallbang360FOV)) and #arguments > 0 and arguments[4] == 999 then
+        if Config.SilentAimHitchance < 100 and math.random(1, 100) > Config.SilentAimHitchance then
+            return oldRaycast(table.unpack(arguments))
+        end
         local closest = get_closest_player(Config.SilentAimFOVRadius, false)
         if closest then
-            arguments[3] = closest[Config.HitPart].Position
+            local target_pos = predict_position(closest, Config.HitPart) or closest[Config.HitPart].Position
+            arguments[3] = target_pos
         end
     end
     return oldRaycast(table.unpack(arguments))
@@ -338,13 +367,71 @@ local function UpdateAimbot()
 
     local closest = get_closest_player(Config.AimbotFOVRadius, true)
     if closest and closest:FindFirstChild('Head') then
-        local headPos, onScreen = camera:WorldToViewportPoint(closest.Head.Position)
+        local target_pos = predict_position(closest, 'Head') or closest.Head.Position
+        local headPos, onScreen = camera:WorldToViewportPoint(target_pos)
         if onScreen then
             local mousePos = UserInputService:GetMouseLocation()
             local delta = Vector2.new(headPos.X, headPos.Y) - mousePos
             local smoothingFactor = ((25 - Config.AimbotSmoothing) / 50) ^ 2
             local smoothedDelta = delta * smoothingFactor
             mousemoverel(smoothedDelta.X, smoothedDelta.Y)
+        end
+    end
+end
+
+local function UpdateTriggerbot()
+    if not State.TriggerbotEnabled or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        if State.IsTriggerbotShooting then
+            mouse1release()
+            State.IsTriggerbotShooting = false
+        end
+        return
+    end
+
+    local closest = get_closest_player(Config.AimbotFOVRadius, false)
+    if closest and closest:FindFirstChild('HumanoidRootPart') and closest:FindFirstChild(Config.HitPart) then
+        local mousePos = UserInputService:GetMouseLocation()
+        local hitPart = closest[Config.HitPart]
+        local isVisible = false
+
+        if typeof(is_target_visible) == "function" then
+            isVisible = is_target_visible(closest, Config.HitPart)
+        else
+            local rayOrigin = camera.CFrame.Position
+            local rayDirection = (hitPart.Position - rayOrigin).Unit * 1000
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+            raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+            local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+            isVisible = raycastResult and raycastResult.Instance and raycastResult.Instance:IsDescendantOf(closest)
+        end
+
+        local cursorOverHitPart = false
+
+        local screenPos, onScreen = camera:WorldToViewportPoint(hitPart.Position)
+        if onScreen then
+            local hitPartSize = hitPart.Size.Magnitude * 10
+            local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+            if distance < hitPartSize then
+                cursorOverHitPart = true
+            end
+        end
+
+        if cursorOverHitPart and isVisible then
+            if not State.IsTriggerbotShooting then
+                mouse1press()
+                State.IsTriggerbotShooting = true
+            end
+        else
+            if State.IsTriggerbotShooting then
+                mouse1release()
+                State.IsTriggerbotShooting = false
+            end
+        end
+    else
+        if State.IsTriggerbotShooting then
+            mouse1release()
+            State.IsTriggerbotShooting = false
         end
     end
 end
@@ -458,6 +545,18 @@ local function CreateTracer(player)
     return tracer
 end
 
+local function CreateChams(player)
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = Config.ChamsColor
+    highlight.OutlineColor = Color3.new(1, 1, 1)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = player.Character
+    highlight.Adornee = player.Character
+    return highlight
+end
+
 local function ClearESP(player)
     if Caches.ESPCache[player] then
         Caches.ESPCache[player].Box:Remove()
@@ -489,6 +588,13 @@ local function ClearTracer(player)
     if Caches.TracerCache[player] then
         Caches.TracerCache[player]:Remove()
         Caches.TracerCache[player] = nil
+    end
+end
+
+local function ClearChams(player)
+    if Caches.ChamsCache[player] then
+        Caches.ChamsCache[player]:Destroy()
+        Caches.ChamsCache[player] = nil
     end
 end
 
@@ -627,7 +733,7 @@ local function UpdateSkeletonESP()
             Head = character:FindFirstChild("Head"),
             Neck = character:FindFirstChild("Neck") or character:FindFirstChild("Head"),
             UpperTorso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso"),
-            LowerTorso = character:FindFirstChild("LowerTorso") or character:FindFirstChild("Torso"),
+            LowerTorso = character:FindFirstChild("LowerTorso") or character:FindFirstChild("HumanoidRootPart"),
             LeftUpperArm = character:FindFirstChild("LeftUpperArm"),
             LeftLowerArm = character:FindFirstChild("LeftLowerArm"),
             LeftHand = character:FindFirstChild("LeftHand"),
@@ -717,7 +823,7 @@ local function UpdateSkeletonESP()
             skeleton.UpperTorsoToRightUpperArm.To = Vector2.new(rightUpperArmPos.X, rightUpperArmPos.Y)
             skeleton.UpperTorsoToRightUpperArm.Visible = true
         else
-            skeleton.UpperTorsoToRightUpperArm.Visible = false
+            toggle.UpperTorsoToRightUpperArm.Visible = false
         end
 
         if rightUpperArmOnScreen and rightLowerArmOnScreen then
@@ -929,6 +1035,60 @@ local function UpdateTracerESP()
     end
 end
 
+local function UpdateChams()
+    if not State.ChamsEnabled then
+        for player, _ in pairs(Caches.ChamsCache) do
+            ClearChams(player)
+        end
+        return
+    end
+
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        for player, _ in pairs(Caches.ChamsCache) do
+            ClearChams(player)
+        end
+        return
+    end
+
+    local localRoot = LocalPlayer.Character.HumanoidRootPart
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+
+        if not player.Character or not player.Character:FindFirstChild('HumanoidRootPart') or not player.Character:FindFirstChild('Humanoid') then
+            ClearChams(player)
+            continue
+        end
+
+        local character = player.Character
+        local humanoid = character.Humanoid
+        if humanoid.Health <= 0 then
+            ClearChams(player)
+            continue
+        end
+
+        local targetRoot = character.HumanoidRootPart
+        local distance = (localRoot.Position - targetRoot.Position).Magnitude
+        if distance > State.ESPDistance then
+            ClearChams(player)
+            continue
+        end
+
+        if Config.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+            ClearChams(player)
+            continue
+        end
+
+        if State.Wallbang360FOV and player == State.WallbangedPlayer then
+            ClearChams(player)
+            continue
+        end
+
+        if not Caches.ChamsCache[player] then
+            Caches.ChamsCache[player] = CreateChams(player)
+        end
+    end
+end
+
 local function UpdateCameraFreeze()
     if State.Wallbang360FOV and State.OriginalCameraCFrame then
         camera.CFrame = State.OriginalCameraCFrame
@@ -986,6 +1146,7 @@ local function HandleWallbangTeleport()
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     end
 end
+
 local function is_target_visible(target, hitPart)
     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') or not target or not target:FindFirstChild(hitPart) then
         return false
@@ -1011,7 +1172,7 @@ local function UpdateRagebot()
             mouse1release()
             State.IsRagebotShooting = false
         end
-        return -- Do not touch mouse inputs when Ragebot is off
+        return
     end
 
     local closest = get_closest_player(Config.SilentAimFOVRadius, false)
@@ -1045,6 +1206,7 @@ players.PlayerRemoving:Connect(function(player)
         ClearSkeleton(player)
         ClearHealthESP(player)
         ClearTracer(player)
+        ClearChams(player)
         if player == State.WallbangedPlayer then
             State.WallbangedPlayer = nil
         end
@@ -1060,6 +1222,7 @@ players.PlayerAdded:Connect(function(player)
                     ClearSkeleton(player)
                     ClearHealthESP(player)
                     ClearTracer(player)
+                    ClearChams(player)
                     if player == State.WallbangedPlayer then
                         State.WallbangedPlayer = nil
                     end
@@ -1074,6 +1237,7 @@ players.PlayerAdded:Connect(function(player)
                     ClearSkeleton(player)
                     ClearHealthESP(player)
                     ClearTracer(player)
+                    ClearChams(player)
                     if player == State.WallbangedPlayer then
                         State.WallbangedPlayer = nil
                     end
@@ -1103,7 +1267,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 end)
 
 if LocalPlayer.Character then
-    local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid', 20)
+    local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid')
     if humanoid then
         UpdateMovement()
         if State.FlyEnabled then
@@ -1119,10 +1283,10 @@ if LocalPlayer.Character then
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed or not State.WallbangEnabled then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 and State.AimbotEnabled then
         State.AimbotLocking = true
-    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 and State.WallbangEnabled then
         State.Wallbang360FOV = true
         State.OriginalCameraCFrame = camera.CFrame
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
@@ -1133,10 +1297,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if gameProcessed or not State.WallbangEnabled then return end
+    if gameProcessed then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         State.AimbotLocking = false
-    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 and State.WallbangEnabled then
         State.Wallbang360FOV = false
         State.OriginalCameraCFrame = nil
         if State.OriginalPlayerCFrame and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
@@ -1228,6 +1392,26 @@ LegitGroup:AddSlider('AimbotSmoothingSlider', {
     end,
 })
 
+LegitGroup:AddToggle('PredictionToggle', {
+    Text = 'Enable Prediction',
+    Default = false,
+    Callback = function(Value)
+        State.PredictionEnabled = Value
+    end,
+})
+
+LegitGroup:AddToggle('TriggerbotToggle', {
+    Text = 'Enable Triggerbot',
+    Default = false,
+    Callback = function(Value)
+        State.TriggerbotEnabled = Value
+        if not Value and State.IsTriggerbotShooting then
+            mouse1release()
+            State.IsTriggerbotShooting = false
+        end
+    end,
+})
+
 local RageGroup = Tabs.Rage:AddLeftGroupbox('Rage Controls')
 
 RageGroup:AddToggle('SilentAimToggle', {
@@ -1271,6 +1455,19 @@ RageGroup:AddSlider('SilentAimFOVSizeSlider', {
         Config.SilentAimFOVRadius = Value
     end,
 })
+
+RageGroup:AddSlider('SilentAimHitchanceSlider', {
+    Text = 'Hitchance',
+    Default = Config.SilentAimHitchance,
+    Min = 0,
+    Max = 100,
+    Rounding = 0,
+    Suffix = '%',
+    Callback = function(Value)
+        Config.SilentAimHitchance = Value
+    end,
+})
+
 RageGroup:AddDropdown('HitPartDropdown', {
     Text = 'Hit Part',
     Default = Config.HitPart,
@@ -1279,6 +1476,7 @@ RageGroup:AddDropdown('HitPartDropdown', {
         Config.HitPart = Value
     end,
 })
+
 RageGroup:AddToggle('WallbangToggle', {
     Text = 'Enable Wallbang',
     Default = false,
@@ -1298,7 +1496,7 @@ RageGroup:AddToggle('RagebotToggle', {
     Default = false,
     Callback = function(Value)
         State.RagebotEnabled = Value
-        if State.RagebotEnabled and State.IsRagebotShooting then
+        if not State.RagebotEnabled and State.IsRagebotShooting then
             mouse1release()
             State.IsRagebotShooting = false
         end
@@ -1380,6 +1578,19 @@ VisualsGroup:AddToggle('TracerESPToggle', {
         if not State.TracerESPEnabled then
             for player, _ in pairs(Caches.TracerCache) do
                 ClearTracer(player)
+            end
+        end
+    end,
+})
+
+VisualsGroup:AddToggle('ChamsToggle', {
+    Text = 'Chams',
+    Default = false,
+    Callback = function(Value)
+        State.ChamsEnabled = Value
+        if not State.ChamsEnabled then
+            for player, _ in pairs(Caches.ChamsCache) do
+                ClearChams(player)
             end
         end
     end,
@@ -1507,6 +1718,7 @@ Library:OnUnload(function()
     State.SkeletonESPEnabled = false
     State.HealthESPEnabled = false
     State.TracerESPEnabled = false
+    State.ChamsEnabled = false
     State.NoRecoilEnabled = false
     State.NoSpreadEnabled = false
     State.RapidFireEnabled = false
@@ -1515,12 +1727,17 @@ Library:OnUnload(function()
     State.WallbangEnabled = false
     State.Wallbang360FOV = false
     State.RagebotEnabled = false
+    State.TriggerbotEnabled = false
     State.OriginalCameraCFrame = nil
     State.OriginalPlayerCFrame = nil
     State.WallbangedPlayer = nil
     if State.IsRagebotShooting then
         mouse1release()
         State.IsRagebotShooting = false
+    end
+    if State.IsTriggerbotShooting then
+        mouse1release()
+        State.IsTriggerbotShooting = false
     end
     UpdateFly()
     UpdateNoclip()
@@ -1529,6 +1746,7 @@ Library:OnUnload(function()
     UpdateSkeletonESP()
     UpdateHealthESP()
     UpdateTracerESP()
+    UpdateChams()
     Library.Unloaded = true
 end)
 
@@ -1555,7 +1773,9 @@ RunService.RenderStepped:Connect(function()
     SafeExecute(UpdateSkeletonESP)
     SafeExecute(UpdateHealthESP)
     SafeExecute(UpdateTracerESP)
+    SafeExecute(UpdateChams)
     SafeExecute(UpdateAimbot)
+    SafeExecute(UpdateTriggerbot)
     SafeExecute(UpdateMovement)
     SafeExecute(UpdateCameraFreeze)
     SafeExecute(HandleWallbangTeleport)
