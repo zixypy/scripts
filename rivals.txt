@@ -823,7 +823,7 @@ local function UpdateSkeletonESP()
             skeleton.UpperTorsoToRightUpperArm.To = Vector2.new(rightUpperArmPos.X, rightUpperArmPos.Y)
             skeleton.UpperTorsoToRightUpperArm.Visible = true
         else
-            toggle.UpperTorsoToRightUpperArm.Visible = false
+            skeleton.UpperTorsoToRightUpperArm.Visible = false
         end
 
         if rightUpperArmOnScreen and rightLowerArmOnScreen then
