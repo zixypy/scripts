@@ -990,7 +990,7 @@ end
 
 
 local Window = Library:CreateWindow({
-    Title = 'Rush Point X',
+    Title = 'Rush Point X | By zixy.py2',
     Center = true,
     AutoShow = true,
     TabPadding = 8,
