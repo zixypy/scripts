@@ -12,6 +12,7 @@ local ThemeManager =
         game:HttpGet(repo .. 'addons/ThemeManager.lua')
     )()
 local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+ThemeManager:SaveDefault('Tokyo Night')
 
 local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
