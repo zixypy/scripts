@@ -8,6 +8,8 @@ local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main
 local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
 local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
 local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+ThemeManager:SetFolder('RivalsX')
+SaveManager:SetFolder('RivalsX')
 ThemeManager:SaveDefault('Tokyo Night')
 
 local camera = Workspace.CurrentCamera
@@ -1090,11 +1092,7 @@ local function UpdateChams()
     end
 end
 
-local function UpdateCameraFreeze()
-    if State.Wallbang360FOV and State.OriginalCameraCFrame then
-        camera.CFrame = State.OriginalCameraCFrame
-    end
-end
+
 local function is_target_visible(target, hitPart)
     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') or not target or not target:FindFirstChild(hitPart) then
         return false
@@ -1112,6 +1110,14 @@ local function is_target_visible(target, hitPart)
         return hitInstance and hitInstance:IsDescendantOf(target)
     end
     return false
+end
+local function UpdateCameraFreeze()
+    if State.Wallbang360FOV and State.OriginalCameraCFrame then
+        local isVisible = is_target_visible(closest, Config.HitPart)
+        if not isVisible then
+            camera.CFrame = State.OriginalCameraCFrame
+    end
+end
 end
 local function HandleWallbangTeleport()
     if not State.WallbangEnabled or not State.Wallbang360FOV or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
@@ -1765,8 +1771,6 @@ ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
-ThemeManager:SetFolder('RivalsX')
-SaveManager:SetFolder('RivalsX')
 SaveManager:BuildConfigSection(Tabs.Settings)
 ThemeManager:ApplyToTab(Tabs.Settings)
 SaveManager:LoadAutoloadConfig()
