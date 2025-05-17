@@ -1318,7 +1318,7 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
 end)
 
 local Window = Library:CreateWindow({
-    Title = 'Rivals X',
+    Title = 'Rivals X | By zixy.py2',
     Center = true,
     AutoShow = true,
     TabPadding = 8,
