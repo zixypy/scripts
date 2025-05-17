@@ -1095,59 +1095,6 @@ local function UpdateCameraFreeze()
         camera.CFrame = State.OriginalCameraCFrame
     end
 end
-
-local function HandleWallbangTeleport()
-    if not State.WallbangEnabled or not State.Wallbang360FOV or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
-        return
-    end
-
-    local closest = get_closest_player(Config.SilentAimFOVRadius, false)
-    if closest and closest:FindFirstChild('HumanoidRootPart') then
-        State.WallbangedPlayer = Players:GetPlayerFromCharacter(closest) or closest
-        local targetRoot = closest.HumanoidRootPart
-        local forwardDirection = targetRoot.CFrame.LookVector
-        local teleportPos = targetRoot.Position + (forwardDirection * 10)
-        
-        teleportPos = Vector3.new(teleportPos.X, targetRoot.Position.Y, teleportPos.Z)
-        
-        local rayOrigin = targetRoot.Position
-        local rayDirection = forwardDirection * 10
-        local raycastParams = RaycastParams.new()
-        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, closest}
-        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-        local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-        
-        if raycastResult then
-            local hitDistance = (raycastResult.Position - rayOrigin).Magnitude
-            if hitDistance < 10 then
-                teleportPos = rayOrigin + (forwardDirection * (hitDistance - 1))
-                teleportPos = Vector3.new(teleportPos.X, targetRoot.Position.Y, teleportPos.Z)
-            end
-        end
-        
-        local targetPos = targetRoot.Position
-        local lookDirection = (targetPos - teleportPos).Unit
-        local flatLookDirection = Vector3.new(lookDirection.X, 0, lookDirection.Z).Unit
-        local newCFrame = CFrame.new(teleportPos) * CFrame.new(Vector3.new(0, 0, 0), flatLookDirection)
-        
-        LocalPlayer.Character.HumanoidRootPart.CFrame = newCFrame
-        
-        local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid')
-        if humanoid then
-            humanoid.AutoRotate = false
-        end
-        
-        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-    else
-        State.WallbangedPlayer = nil
-        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
-        if humanoid then
-            humanoid.AutoRotate = true
-        end
-        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-    end
-end
-
 local function is_target_visible(target, hitPart)
     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') or not target or not target:FindFirstChild(hitPart) then
         return false
@@ -1166,6 +1113,69 @@ local function is_target_visible(target, hitPart)
     end
     return false
 end
+local function HandleWallbangTeleport()
+    if not State.WallbangEnabled or not State.Wallbang360FOV or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        return
+    end
+
+    local closest = get_closest_player(Config.SilentAimFOVRadius, false)
+    if closest and closest:FindFirstChild('HumanoidRootPart') and closest:FindFirstChild(Config.HitPart) then
+        local isVisible = is_target_visible(closest, Config.HitPart)
+        if not isVisible then
+            State.WallbangedPlayer = Players:GetPlayerFromCharacter(closest) or closest
+            local targetRoot = closest.HumanoidRootPart
+            local forwardDirection = targetRoot.CFrame.LookVector
+            local teleportPos = targetRoot.Position + (forwardDirection * 10)
+            
+            teleportPos = Vector3.new(teleportPos.X, targetRoot.Position.Y, teleportPos.Z)
+            
+            local rayOrigin = targetRoot.Position
+            local rayDirection = forwardDirection * 10
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, closest}
+            raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+            local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+            
+            if raycastResult then
+                local hitDistance = (raycastResult.Position - rayOrigin).Magnitude
+                if hitDistance < 10 then
+                    teleportPos = rayOrigin + (forwardDirection * (hitDistance - 1))
+                    teleportPos = Vector3.new(teleportPos.X, targetRoot.Position.Y, teleportPos.Z)
+                end
+            end
+            
+            local targetPos = targetRoot.Position
+            local lookDirection = (targetPos - teleportPos).Unit
+            local flatLookDirection = Vector3.new(lookDirection.X, 0, lookDirection.Z).Unit
+            local newCFrame = CFrame.new(teleportPos) * CFrame.new(Vector3.new(0, 0, 0), flatLookDirection)
+            
+            LocalPlayer.Character.HumanoidRootPart.CFrame = newCFrame
+            
+            local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid')
+            if humanoid then
+                humanoid.AutoRotate = false
+            end
+            
+            UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        else
+            State.WallbangedPlayer = nil
+            local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
+            if humanoid then
+                humanoid.AutoRotate = true
+            end
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        end
+    else
+        State.WallbangedPlayer = nil
+        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
+        if humanoid then
+            humanoid.AutoRotate = true
+        end
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    end
+end
+
+
 
 local function UpdateRagebot()
     if not State.RagebotEnabled or not LocalPlayer.Character then
