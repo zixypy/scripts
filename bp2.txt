@@ -12,6 +12,8 @@ local ThemeManager =
         game:HttpGet(repo .. 'addons/ThemeManager.lua')
     )()
 local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+ThemeManager:SetFolder('BigPaintball2Aimbot')
+SaveManager:SetFolder('BigPaintball2Aimbot')
 ThemeManager:SaveDefault('Tokyo Night')
 
 local Camera = Workspace.CurrentCamera
@@ -927,8 +929,6 @@ ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
-ThemeManager:SetFolder('BigPaintball2Aimbot')
-SaveManager:SetFolder('BigPaintball2Aimbot')
 SaveManager:BuildConfigSection(Tabs.Settings)
 ThemeManager:ApplyToTab(Tabs.Settings)
 SaveManager:LoadAutoloadConfig()
