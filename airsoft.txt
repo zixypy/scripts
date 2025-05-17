@@ -5,7 +5,7 @@ local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
 ThemeManager:SaveDefault('Tokyo Night')
 
 local Window = Library:CreateWindow({
-    Title = 'Airsoft Battles X',
+    Title = 'Airsoft Battles X | By zixy.py2',
     Center = true,
     AutoShow = true,
     TabPadding = 8,
