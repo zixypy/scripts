@@ -41,9 +41,9 @@ local RageState = {
 
 local ESPSettings = {
     BoxEnabled = true,
-    BoxColor = Color3.fromRGB(0, 64, 191),
-    SkeletonESPColor = Color3.fromRGB(0, 64, 191),
-    TracerColor = Color3.fromRGB(0, 64, 191),
+    BoxColor = Color3.fromRGB(103, 89, 179),
+    SkeletonESPColor = Color3.fromRGB(103, 89, 179),
+    TracerColor = Color3.fromRGB(103, 89, 179),
     TracerOrigin = 'Bottom Screen',
 }
 
