@@ -76,6 +76,8 @@ local State = {
     RainbowGunEnabled = false,
     CustomGunColorEnabled = false,
     WeaponConnection = nil,
+    RainbowHue = 0, -- Added for synchronized rainbow effect
+    RainbowTask = nil, -- Tracks rainbow effect task
 }
 
 local Caches = {
@@ -413,12 +415,8 @@ local function ResetGunAppearance()
         return
     end
     for _, desc in weapon:GetDescendants() do
-        if desc.Name == 'SurfaceAppearance' then
-            desc:Destroy()
-        end
         if desc:IsA('BasePart') then
             desc.Material = Enum.Material.Plastic
-            desc.Color = Color3.new(1, 1, 1)
             desc.Transparency = 0
         end
     end
@@ -438,15 +436,7 @@ local function UpdateGunAppearance()
             if desc:IsA('BasePart') then
                 desc.Material = Enum.Material.ForceField
                 if State.RainbowGunEnabled then
-                    task.spawn(function()
-                        while State.RainbowGunEnabled and desc.Parent do
-                            for i = 0, 1, 0.01 do
-                                if not State.RainbowGunEnabled or not desc.Parent then break end
-                                desc.Color = Color3.fromHSV(i, 1, 1)
-                                wait(0.05)
-                            end
-                        end
-                    end)
+                    desc.Color = Color3.fromHSV(State.RainbowHue or 0, 1, 1)
                 elseif State.CustomGunColorEnabled then
                     desc.Color = Config.CustomGunColor
                     desc.Transparency = Config.CustomGunTransparency
@@ -455,7 +445,22 @@ local function UpdateGunAppearance()
         end
     end
 end
-
+local function StartRainbowEffect()
+    if State.RainbowTask then
+        return
+    end
+    State.RainbowTask = task.spawn(function()
+        while State.RainbowGunEnabled do
+            State.RainbowHue = (State.RainbowHue or 0) + 0.01
+            if State.RainbowHue > 1 then
+                State.RainbowHue = 0
+            end
+            SafeExecute(UpdateGunAppearance, "UpdateGunAppearance for Rainbow")
+            task.wait(0.03)
+        end
+        State.RainbowTask = nil
+    end)
+end
 camera.ChildAdded:Connect(function(child)
     if child.Name == 'Weapon' then
         SafeExecute(UpdateGunAppearance, "UpdateGunAppearance on Camera ChildAdded")
@@ -1328,6 +1333,13 @@ ExploitsGroup:AddToggle('RainbowGunToggle', {
         State.RainbowGunEnabled = Value
         if Value then
             State.CustomGunColorEnabled = false
+            StartRainbowEffect()
+        else
+            if State.RainbowTask then
+                task.cancel(State.RainbowTask)
+                State.RainbowTask = nil
+            end
+            ResetGunAppearance()
         end
         UpdateGunAppearance()
     end,
@@ -1452,6 +1464,10 @@ Library:OnUnload(function()
     if State.NoSpreadTask then
         State.NoSpreadTask = nil
     end
+    if State.RainbowTask then
+        task.cancel(State.RainbowTask)
+        State.RainbowTask = nil
+    end
     network.FireServer = old
     recoil.AddRecoil = oldRecoil
     State.FlyEnabled = false
@@ -1481,7 +1497,9 @@ Library:OnUnload(function()
     UpdateSkeletonESP()
     UpdateHealthESP()
     UpdateTracerESP()
-    ResetGunAppearance()
+    if State.RainbowGunEnabled or State.CustomGunColorEnabled then
+        ResetGunAppearance()
+    end
     Library.Unloaded = true
 end)
 
