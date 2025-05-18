@@ -25,7 +25,7 @@ local Config = {
     AimbotFOVRadius = 100,
     FlySpeed = 50,
     AimbotSmoothing = 0,
-    SkeletonESPColor = Color3.new(0, 0.25, 0.75),
+    SkeletonESPColor = Color3.new(0.403922, 0.349020, 0.701961),
     TracerOrigin = 'Bottom Screen',
     RapidFireStrength = 99999999,
     WalkSpeed = 16,
@@ -37,7 +37,7 @@ local Config = {
 
 local ESPSettings = {
     BoxEnabled = true,
-    BoxColor = Color3.new(0, 0.25, 0.75),
+    BoxColor = Color3.new(0.403922, 0.349020, 0.701961),
 }
 
 local State = {
@@ -543,7 +543,7 @@ end
 local function CreateTracer(player)
     local tracer = Drawing.new('Line')
     tracer.Thickness = 2
-    tracer.Color = Color3.new(0, 0.25, 0.75)
+    tracer.Color = Color3.new(0.403922, 0.349020, 0.701961)
     tracer.Visible = false
     return tracer
 end
