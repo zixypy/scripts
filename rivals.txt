@@ -75,6 +75,7 @@ local State = {
     VisibleCheckEnabled = false,
     RainbowGunEnabled = false,
     CustomGunColorEnabled = false,
+    WeaponConnection = nil,
 }
 
 local Caches = {
@@ -407,7 +408,7 @@ local function UpdateMovement()
 end
 
 local function ResetGunAppearance()
-    local weapon = camera:FindFirstChild('Weapon')
+    local weapon = camera:FindFirstChild('Weapon') or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Weapon'))
     if not weapon then
         return
     end
@@ -424,7 +425,7 @@ local function ResetGunAppearance()
 end
 
 local function UpdateGunAppearance()
-    local weapon = camera:FindFirstChild('Weapon')
+    local weapon = camera:FindFirstChild('Weapon') or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Weapon'))
     if not weapon then
         return
     end
@@ -458,8 +459,51 @@ end
 
 camera.ChildAdded:Connect(function(child)
     if child.Name == 'Weapon' then
-        SafeExecute(UpdateGunAppearance, "UpdateGunAppearance")
+        SafeExecute(UpdateGunAppearance, "UpdateGunAppearance on Camera ChildAdded")
     end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(character)
+    SafeExecute(function()
+        local humanoid = character:WaitForChild('Humanoid', 5)
+        if humanoid then
+            if State.FlyEnabled then
+                if State.FlyConnection then
+                    State.FlyConnection:Disconnect()
+                    State.FlyConnection = nil
+                end
+                if State.OriginalGravity then
+                    Workspace.Gravity = State.OriginalGravity
+                    State.OriginalGravity = nil
+                end
+                UpdateFly()
+            end
+            if State.NoclipEnabled then
+                for _, part in ipairs(character:GetDescendants()) do
+                    if part:IsA('BasePart') then
+                        part.CanCollide = true
+                    end
+                end
+                UpdateNoclip()
+            end
+            if State.InfiniteJumpEnabled then
+                if State.FlyConnection then
+                    State.FlyConnection:Disconnect()
+                    State.FlyConnection = nil
+                end
+                UpdateInfiniteJump()
+            end
+            if State.WalkSpeedEnabled or State.JumpPowerEnabled then
+                UpdateMovement()
+            end
+            -- Monitor weapon changes in character
+            State.WeaponConnection = character.ChildAdded:Connect(function(child)
+                if child.Name == 'Weapon' then
+                    SafeExecute(UpdateGunAppearance, "UpdateGunAppearance on Character ChildAdded")
+                end
+            end)
+        end
+    end, "CharacterAdded")
 end)
 
 local function CreateESP(player)
@@ -573,7 +617,7 @@ end
 local function ClearHealthESP(player)
     if Caches.HealthCache[player] then
         Caches.HealthCache[player].BarBackground:Remove()
-        Caches.HealthCache[player].Bar:Remove()
+        Caches.HhealthCache[player].Bar:Remove()
         Caches.HealthCache[player].Text:Remove()
         Caches.HealthCache[player] = nil
     end
@@ -977,43 +1021,6 @@ Players.PlayerAdded:Connect(function(player)
             end)
         end
     end)
-end)
-
-LocalPlayer.CharacterAdded:Connect(function(character)
-    SafeExecute(function()
-        local humanoid = character:WaitForChild('Humanoid', 5)
-        if humanoid then
-            if State.FlyEnabled then
-                if State.FlyConnection then
-                    State.FlyConnection:Disconnect()
-                    State.FlyConnection = nil
-                end
-                if State.OriginalGravity then
-                    Workspace.Gravity = State.OriginalGravity
-                    State.OriginalGravity = nil
-                end
-                UpdateFly()
-            end
-            if State.NoclipEnabled then
-                for _, part in ipairs(character:GetDescendants()) do
-                    if part:IsA('BasePart') then
-                        part.CanCollide = true
-                    end
-                end
-                UpdateNoclip()
-            end
-            if State.InfiniteJumpEnabled then
-                if State.FlyConnection then
-                    State.FlyConnection:Disconnect()
-                    State.FlyConnection = nil
-                end
-                UpdateInfiniteJump()
-            end
-            if State.WalkSpeedEnabled or State.JumpPowerEnabled then
-                UpdateMovement()
-            end
-        end
-    end, "CharacterAdded")
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -1439,6 +1446,10 @@ Library:OnUnload(function()
         State.FlyConnection:Disconnect()
         State.FlyConnection = nil
     end
+    if State.WeaponConnection then
+        State.WeaponConnection:Disconnect()
+        State.WeaponConnection = nil
+    end
     if State.NoSpreadTask then
         State.NoSpreadTask = nil
     end
@@ -1510,4 +1521,8 @@ RunService.RenderStepped:Connect(function()
     SafeExecute(UpdateAimbot, "UpdateAimbot")
     SafeExecute(UpdateMovement, "UpdateMovement")
     SafeExecute(UpdateRagebot, "UpdateRagebot")
+    -- Reapply gun appearance if toggles are active
+    if State.RainbowGunEnabled or State.CustomGunColorEnabled then
+        SafeExecute(UpdateGunAppearance, "UpdateGunAppearance on RenderStepped")
+    end
 end)
