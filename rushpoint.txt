@@ -3,6 +3,7 @@ local RunService = game:GetService('RunService')
 local Workspace = game:GetService('Workspace')
 local UserInputService = game:GetService('UserInputService')
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local HttpService = game:GetService('HttpService')
 
 local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
 local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
@@ -11,37 +12,42 @@ local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
 ThemeManager:SetFolder('RushPointX')
 SaveManager:SetFolder('RushPointX')
 ThemeManager:SaveDefault('Tokyo Night')
+
 local camera = Workspace.CurrentCamera
-local players = Players
-local LocalPlayer = players.LocalPlayer
+local LocalPlayer = Players.LocalPlayer
 
 local network = require(ReplicatedStorage.Modules.Shared.Network)
 local recoil = require(ReplicatedStorage.Modules.Client.Helpers.RecoilHandler)
 local bac_characters_senv = getsenv(game.ReplicatedStorage.BAC.Characters)
-local KillAllEnabled = false
+
 local Config = {
-    HitPart = 'Head',
+    SilentAimHitPart = 'Head',
+    AimbotHitPart = 'Head',
     TeamCheck = true,
     FOVColor = Color3.fromRGB(255, 255, 255),
     SilentAimFOVRadius = 100,
     AimbotFOVRadius = 100,
     FlySpeed = 50,
     AimbotSmoothing = 0,
-    SkeletonESPColor = Color3.new(0.403922, 0.349020, 0.701961),
+    SkeletonESPColor = Color3.new(0, 0.25, 0.75),
     TracerOrigin = 'Bottom Screen',
     WalkSpeed = 16,
     JumpPower = 50,
+    SilentAimHitchance = 100,
+    CustomGunColor = Color3.new(1, 0, 0),
+    CustomGunTransparency = 0,
 }
 
 local ESPSettings = {
     BoxEnabled = true,
-    BoxColor = Color3.new(0.403922, 0.349020, 0.701961),
+    BoxColor = Color3.new(0, 0.25, 0.75),
 }
 
 local State = {
-    ESPDistance = 500,
+    ESPDistance = 750,
     SilentAimEnabled = false,
     SilentAimFOVEnabled = false,
+    SilentAim360FOV = false,
     ESPCustomEnabled = false,
     NameESPEnabled = false,
     DistanceESPEnabled = false,
@@ -53,8 +59,10 @@ local State = {
     InfiniteJumpEnabled = false,
     AimbotEnabled = false,
     AimbotFOVEnabled = false,
+    Aimbot360FOV = false,
     AimbotLocking = false,
     NoRecoilEnabled = false,
+    NoSpreadEnabled = false,
     WalkSpeedEnabled = false,
     JumpPowerEnabled = false,
     SilentAimFOVCircle = nil,
@@ -62,11 +70,12 @@ local State = {
     OriginalGravity = nil,
     FlyConnection = nil,
     FlyReinitializeConnection = nil,
-    FollowConnection = nil,
-    FollowTarget = nil,
-    SpectateConnection = nil,
-    SpectateTarget = nil,
-    SpectateEnabled = false,
+    RagebotEnabled = false,
+    IsRagebotShooting = false,
+    VisibleCheckEnabled = false,
+    RainbowGunEnabled = false,
+    CustomGunColorEnabled = false,
+    WeaponConnection = nil,
 }
 
 local Caches = {
@@ -76,27 +85,62 @@ local Caches = {
     TracerCache = {},
 }
 
-local SessionID = string.gsub(tostring(math.random()):sub(3), '%d', function(c)
-    return string.char(96 + math.random(1, 26))
-end)
+local SessionID = HttpService:GenerateGUID(false)
 
--- Silent Aim Implementation (Unchanged)
-local function GetClosestPlayer(fovRadius)
+local function ShouldShowPlayer(player, character, distance)
+    if player == LocalPlayer or not character or not character:FindFirstChild("HumanoidRootPart") or not character:FindFirstChild("Humanoid") or character.Humanoid.Health <= 0 then
+        return false
+    end
+    if distance > State.ESPDistance then
+        return false
+    end
+    if not Config.TeamCheck then
+        return true
+    end
+    local localTeam = LocalPlayer:FindFirstChild("SelectedTeam") and LocalPlayer.SelectedTeam.Value or nil
+    local playerTeam = player:FindFirstChild("SelectedTeam") and player.SelectedTeam.Value or nil
+    if not localTeam or not playerTeam then
+        warn("Team data missing for " .. player.Name .. ": localTeam=" .. tostring(localTeam) .. ", playerTeam=" .. tostring(playerTeam))
+        return false
+    end
+    return localTeam ~= playerTeam
+end
+
+local function IsPlayerVisible(targetCharacter, hitPart)
+    if not (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then
+        return false
+    end
+    local origin = camera.CFrame.Position
+    local targetPos = targetCharacter[hitPart].Position
+    local ray = Ray.new(origin, (targetPos - origin).Unit * 500)
+    local ignoreList = {LocalPlayer.Character}
+    local hit, pos = Workspace:FindPartOnRayWithIgnoreList(ray, ignoreList)
+    return hit and hit:IsDescendantOf(targetCharacter)
+end
+
+local function GetClosestPlayer(fovRadius, isAimbot)
     local dist, target = math.huge, nil
+    local hitPart = isAimbot and Config.AimbotHitPart or Config.SilentAimHitPart
+    local use360FOV = isAimbot and State.Aimbot360FOV or State.SilentAim360FOV
 
-    for _, player in next, players:GetChildren() do
-        if player:IsA('Player') and player ~= LocalPlayer and player.SelectedTeam.Value ~= LocalPlayer.SelectedTeam.Value then
+    for _, player in next, Players:GetChildren() do
+        if player:IsA('Player') and player ~= LocalPlayer then
             local character = getupvalue(bac_characters_senv.NewChar, 1)[player]
-            if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild(Config.HitPart) then
+            if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild(hitPart) and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0 then
                 local position, on_screen = camera:WorldToViewportPoint(character.HumanoidRootPart.Position)
                 if on_screen then
                     local center = UserInputService:GetMouseLocation()
                     local distance = (center - Vector2.new(position.X, position.Y)).Magnitude
-                    if distance <= fovRadius then
+                    if use360FOV or distance <= fovRadius then
                         local mag = (character.HumanoidRootPart.CFrame.p - camera.CFrame.p).Magnitude
                         if mag < dist and mag <= State.ESPDistance then
-                            dist = mag
-                            target = character
+                            if ShouldShowPlayer(player, character, mag) then
+                                if State.VisibleCheckEnabled and not IsPlayerVisible(character, hitPart) then
+                                    continue
+                                end
+                                dist = mag
+                                target = character
+                            end
                         end
                     end
                 end
@@ -109,10 +153,13 @@ end
 
 local firesever_new = function(self, name, args)
     if name == 'FireBullet' and State.SilentAimEnabled then
-        local target = GetClosestPlayer(Config.SilentAimFOVRadius)
-        if target then
+        if Config.SilentAimHitchance < 100 and math.random(1, 100) > Config.SilentAimHitchance then
+            return self, name, unpack(args)
+        end
+        local target = GetClosestPlayer(Config.SilentAimFOVRadius, false)
+        if target and target:FindFirstChild(Config.SilentAimHitPart) then
             for _, v in next, args[1] do
-                local aim_cf = target[Config.HitPart].CFrame
+                local aim_cf = target[Config.SilentAimHitPart].CFrame
                 local rotated_cf = CFrame.new(camera.CFrame.p, aim_cf.p)
                 v.RotationMatrix = (rotated_cf - rotated_cf.p)
                 v.OriginCFrame = rotated_cf
@@ -126,7 +173,6 @@ local old; old = hookfunction(network.FireServer, function(self, name, ...)
     return old(firesever_new(self, name, {...}))
 end)
 
--- No Recoil Hook
 local oldRecoil; oldRecoil = hookfunction(recoil.AddRecoil, function(...)
     if State.NoRecoilEnabled then
         return
@@ -134,10 +180,10 @@ local oldRecoil; oldRecoil = hookfunction(recoil.AddRecoil, function(...)
     return oldRecoil(...)
 end)
 
-local function SafeExecute(func)
+local function SafeExecute(func, description)
     local success, errorMessage = pcall(func)
     if not success then
-        warn("Error in SafeExecute: " .. tostring(errorMessage))
+        warn("Error in " .. (description or "SafeExecute") .. ": " .. tostring(errorMessage))
     end
 end
 
@@ -162,13 +208,50 @@ local function UpdateFOVCircle()
         State.AimbotFOVCircle = CreateFOVCircle("Aimbot")
     end
 
-    State.SilentAimFOVCircle.Position = UserInputService:GetMouseLocation()
+    local mousePos = UserInputService:GetMouseLocation()
+    State.SilentAimFOVCircle.Position = mousePos
     State.SilentAimFOVCircle.Radius = Config.SilentAimFOVRadius
-    State.SilentAimFOVCircle.Visible = State.SilentAimFOVEnabled
+    State.SilentAimFOVCircle.Visible = State.SilentAimFOVEnabled and not State.SilentAim360FOV
 
-    State.AimbotFOVCircle.Position = UserInputService:GetMouseLocation()
+    State.AimbotFOVCircle.Position = mousePos
     State.AimbotFOVCircle.Radius = Config.AimbotFOVRadius
-    State.AimbotFOVCircle.Visible = State.AimbotFOVEnabled
+    State.AimbotFOVCircle.Visible = State.AimbotFOVEnabled and not State.Aimbot360FOV
+end
+
+local function UpdateRagebot()
+    if not State.RagebotEnabled or not LocalPlayer.Character then
+        if State.IsRagebotShooting then
+            State.IsRagebotShooting = false
+        end
+        return
+    end
+
+    local target = GetClosestPlayer(Config.SilentAimFOVRadius, false)
+    if target and target:FindFirstChild(Config.SilentAimHitPart) then
+        local headPos, onScreen = camera:WorldToViewportPoint(target[Config.SilentAimHitPart].Position)
+        if onScreen and IsPlayerVisible(target, Config.SilentAimHitPart) then
+            State.SilentAimEnabled = true
+            if not State.IsRagebotShooting then
+                State.IsRagebotShooting = true
+                coroutine.wrap(function()
+                    while State.RagebotEnabled and State.IsRagebotShooting do
+                        mouse1press()
+                        wait(0.0005)
+                        mouse1release()
+                        wait(0.001 - 0.0005)
+                    end
+                end)()
+            end
+        else
+            if State.IsRagebotShooting then
+                State.IsRagebotShooting = false
+            end
+        end
+    else
+        if State.IsRagebotShooting then
+            State.IsRagebotShooting = false
+        end
+    end
 end
 
 local function UpdateFly()
@@ -286,29 +369,9 @@ local function UpdateAimbot()
         return
     end
 
-    local closest, closest_distance = nil, Config.AimbotFOVRadius
-    for _, player in next, players:GetChildren() do
-        if player:IsA('Player') and player ~= LocalPlayer and (not Config.TeamCheck or player.SelectedTeam.Value ~= LocalPlayer.SelectedTeam.Value) then
-            local character = getupvalue(bac_characters_senv.NewChar, 1)[player]
-            if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Head") then
-                local position, on_screen = camera:WorldToViewportPoint(character.HumanoidRootPart.Position)
-                if on_screen then
-                    local center = UserInputService:GetMouseLocation()
-                    local distance = (center - Vector2.new(position.X, position.Y)).Magnitude
-                    if distance <= closest_distance then
-                        local mag = (character.HumanoidRootPart.CFrame.p - camera.CFrame.p).Magnitude
-                        if mag <= State.ESPDistance then
-                            closest = character
-                            closest_distance = distance
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if closest and closest:FindFirstChild('Head') then
-        local headPos, onScreen = camera:WorldToViewportPoint(closest.Head.Position)
+    local closest = GetClosestPlayer(Config.AimbotFOVRadius, true)
+    if closest and closest:FindFirstChild(Config.AimbotHitPart) then
+        local headPos, onScreen = camera:WorldToViewportPoint(closest[Config.AimbotHitPart].Position)
         if onScreen then
             local mousePos = UserInputService:GetMouseLocation()
             local delta = Vector2.new(headPos.X, headPos.Y) - mousePos
@@ -343,6 +406,104 @@ local function UpdateMovement()
         warn("Failed to find Humanoid for WalkSpeed/JumpPower update after 5 seconds")
     end
 end
+
+local function ResetGunAppearance()
+    local weapon = camera:FindFirstChild('Weapon') or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Weapon'))
+    if not weapon then
+        return
+    end
+    for _, desc in weapon:GetDescendants() do
+        if desc.Name == 'SurfaceAppearance' then
+            desc:Destroy()
+        end
+        if desc:IsA('BasePart') then
+            desc.Material = Enum.Material.Plastic
+            desc.Color = Color3.new(1, 1, 1)
+            desc.Transparency = 0
+        end
+    end
+end
+
+local function UpdateGunAppearance()
+    local weapon = camera:FindFirstChild('Weapon') or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Weapon'))
+    if not weapon then
+        return
+    end
+    -- Only modify appearance if RainbowGun or CustomGunColor is enabled
+    if State.RainbowGunEnabled or State.CustomGunColorEnabled then
+        for _, desc in weapon:GetDescendants() do
+            if desc.Name == 'SurfaceAppearance' then
+                desc:Destroy()
+            end
+            if desc:IsA('BasePart') then
+                desc.Material = Enum.Material.ForceField
+                if State.RainbowGunEnabled then
+                    task.spawn(function()
+                        while State.RainbowGunEnabled and desc.Parent do
+                            for i = 0, 1, 0.01 do
+                                if not State.RainbowGunEnabled or not desc.Parent then break end
+                                desc.Color = Color3.fromHSV(i, 1, 1)
+                                wait(0.05)
+                            end
+                        end
+                    end)
+                elseif State.CustomGunColorEnabled then
+                    desc.Color = Config.CustomGunColor
+                    desc.Transparency = Config.CustomGunTransparency
+                end
+            end
+        end
+    end
+end
+
+camera.ChildAdded:Connect(function(child)
+    if child.Name == 'Weapon' then
+        SafeExecute(UpdateGunAppearance, "UpdateGunAppearance on Camera ChildAdded")
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(character)
+    SafeExecute(function()
+        local humanoid = character:WaitForChild('Humanoid', 5)
+        if humanoid then
+            if State.FlyEnabled then
+                if State.FlyConnection then
+                    State.FlyConnection:Disconnect()
+                    State.FlyConnection = nil
+                end
+                if State.OriginalGravity then
+                    Workspace.Gravity = State.OriginalGravity
+                    State.OriginalGravity = nil
+                end
+                UpdateFly()
+            end
+            if State.NoclipEnabled then
+                for _, part in ipairs(character:GetDescendants()) do
+                    if part:IsA('BasePart') then
+                        part.CanCollide = true
+                    end
+                end
+                UpdateNoclip()
+            end
+            if State.InfiniteJumpEnabled then
+                if State.FlyConnection then
+                    State.FlyConnection:Disconnect()
+                    State.FlyConnection = nil
+                end
+                UpdateInfiniteJump()
+            end
+            if State.WalkSpeedEnabled or State.JumpPowerEnabled then
+                UpdateMovement()
+            end
+            -- Monitor weapon changes in character
+            State.WeaponConnection = character.ChildAdded:Connect(function(child)
+                if child.Name == 'Weapon' then
+                    SafeExecute(UpdateGunAppearance, "UpdateGunAppearance on Character ChildAdded")
+                end
+            end)
+        end
+    end, "CharacterAdded")
+end)
 
 local function CreateESP(player)
     local esp = {
@@ -429,7 +590,7 @@ end
 local function CreateTracer(player)
     local tracer = Drawing.new('Line')
     tracer.Thickness = 2
-    tracer.Color = Color3.new(0.403922, 0.349020, 0.701961)
+    tracer.Color = Color3.new(0, 0.25, 0.75)
     tracer.Visible = false
     return tracer
 end
@@ -455,7 +616,7 @@ end
 local function ClearHealthESP(player)
     if Caches.HealthCache[player] then
         Caches.HealthCache[player].BarBackground:Remove()
-        Caches.HealthCache[player].Bar:Remove()
+        Caches.HhealthCache[player].Bar:Remove()
         Caches.HealthCache[player].Text:Remove()
         Caches.HealthCache[player] = nil
     end
@@ -484,23 +645,11 @@ local function UpdateESP()
     end
 
     local localRoot = LocalPlayer.Character.HumanoidRootPart
-    for _, player in next, players:GetChildren() do
-        if player:IsA('Player') and player ~= LocalPlayer and (not Config.TeamCheck or player.SelectedTeam.Value ~= LocalPlayer.SelectedTeam.Value) then
+    for _, player in next, Players:GetChildren() do
+        if player:IsA('Player') then
             local character = getupvalue(bac_characters_senv.NewChar, 1)[player]
-            if not character or not character:FindFirstChild('HumanoidRootPart') or not character:FindFirstChild('Humanoid') then
-                ClearESP(player)
-                continue
-            end
-
-            local humanoid = character.Humanoid
-            if humanoid.Health <= 0 then
-                ClearESP(player)
-                continue
-            end
-
-            local targetRoot = character.HumanoidRootPart
-            local distance = (localRoot.Position - targetRoot.Position).Magnitude
-            if distance > State.ESPDistance then
+            local distance = character and character:FindFirstChild('HumanoidRootPart') and (localRoot.Position - character.HumanoidRootPart.Position).Magnitude or math.huge
+            if not ShouldShowPlayer(player, character, distance) then
                 ClearESP(player)
                 continue
             end
@@ -510,11 +659,11 @@ local function UpdateESP()
             end
 
             local esp = Caches.ESPCache[player]
-            local rootPos, onScreen = camera:WorldToViewportPoint(targetRoot.Position)
+            local rootPos, onScreen = camera:WorldToViewportPoint(character.HumanoidRootPart.Position)
             if onScreen then
                 local head = character:FindFirstChild("Head")
-                local topPos = head and camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1, 0)) or camera:WorldToViewportPoint(targetRoot.Position + Vector3.new(0, 3, 0))
-                local bottomPos = camera:WorldToViewportPoint(targetRoot.Position - Vector3.new(0, 3, 0))
+                local topPos = head and camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1, 0)) or camera:WorldToViewportPoint(character.HumanoidRootPart.Position + Vector3.new(0, 3, 0))
+                local bottomPos = camera:WorldToViewportPoint(character.HumanoidRootPart.Position - Vector3.new(0, 3, 0))
                 local height = math.abs(topPos.Y - bottomPos.Y)
                 local width = height * 0.5
                 local centerPos = Vector2.new(rootPos.X, (topPos.Y + bottomPos.Y) / 2)
@@ -554,23 +703,11 @@ local function UpdateSkeletonESP()
     end
 
     local localRoot = LocalPlayer.Character.HumanoidRootPart
-    for _, player in next, players:GetChildren() do
-        if player:IsA('Player') and player ~= LocalPlayer and (not Config.TeamCheck or player.SelectedTeam.Value ~= LocalPlayer.SelectedTeam.Value) then
+    for _, player in next, Players:GetChildren() do
+        if player:IsA('Player') then
             local character = getupvalue(bac_characters_senv.NewChar, 1)[player]
-            if not character or not character:FindFirstChild('HumanoidRootPart') or not character:FindFirstChild('Humanoid') then
-                ClearSkeleton(player)
-                continue
-            end
-
-            local humanoid = character.Humanoid
-            if humanoid.Health <= 0 then
-                ClearSkeleton(player)
-                continue
-            end
-
-            local targetRoot = character.HumanoidRootPart
-            local distance = (localRoot.Position - targetRoot.Position).Magnitude
-            if distance > State.ESPDistance then
+            local distance = character and character:FindFirstChild('HumanoidRootPart') and (localRoot.Position - character.HumanoidRootPart.Position).Magnitude or math.huge
+            if not ShouldShowPlayer(player, character, distance) then
                 ClearSkeleton(player)
                 continue
             end
@@ -762,23 +899,11 @@ local function UpdateHealthESP()
     end
 
     local localRoot = LocalPlayer.Character.HumanoidRootPart
-    for _, player in next, players:GetChildren() do
-        if player:IsA('Player') and player ~= LocalPlayer and (not Config.TeamCheck or player.SelectedTeam.Value ~= LocalPlayer.SelectedTeam.Value) then
+    for _, player in next, Players:GetChildren() do
+        if player:IsA('Player') then
             local character = getupvalue(bac_characters_senv.NewChar, 1)[player]
-            if not character or not character:FindFirstChild('HumanoidRootPart') or not character:FindFirstChild('Humanoid') then
-                ClearHealthESP(player)
-                continue
-            end
-
-            local humanoid = character.Humanoid
-            if humanoid.Health <= 0 then
-                ClearHealthESP(player)
-                continue
-            end
-
-            local targetRoot = character.HumanoidRootPart
-            local distance = (localRoot.Position - targetRoot.Position).Magnitude
-            if distance > State.ESPDistance then
+            local distance = character and character:FindFirstChild('HumanoidRootPart') and (localRoot.Position - character.HumanoidRootPart.Position).Magnitude or math.huge
+            if not ShouldShowPlayer(player, character, distance) then
                 ClearHealthESP(player)
                 continue
             end
@@ -788,9 +913,9 @@ local function UpdateHealthESP()
             end
 
             local health = Caches.HealthCache[player]
-            local headPos, onScreen = camera:WorldToViewportPoint(targetRoot.Position - Vector3.new(0, 3, 0))
+            local headPos, onScreen = camera:WorldToViewportPoint(character.HumanoidRootPart.Position - Vector3.new(0, 3, 0))
             if onScreen then
-                local healthPercentage = humanoid.Health / humanoid.MaxHealth
+                local healthPercentage = character.Humanoid.Health / character.Humanoid.MaxHealth
                 health.BarBackground.Position = Vector2.new(headPos.X - 25, headPos.Y - 30)
                 health.BarBackground.Visible = true
                 health.Bar.Size = Vector2.new(50 * healthPercentage, 5)
@@ -837,27 +962,16 @@ local function UpdateTracerESP()
         tracerFrom = Vector2.new(screenSize.X / 2, 0)
     end
 
-    for _, player in next, players:GetChildren() do
-        if player:IsA('Player') and player ~= LocalPlayer and (not Config.TeamCheck or player.SelectedTeam.Value ~= LocalPlayer.SelectedTeam.Value) then
+    for _, player in next, Players:GetChildren() do
+        if player:IsA('Player') then
             local character = getupvalue(bac_characters_senv.NewChar, 1)[player]
-            if not character or not character:FindFirstChild('HumanoidRootPart') or not character:FindFirstChild('Humanoid') then
-                ClearTracer(player)
-                continue
-            end
-
-            local humanoid = character.Humanoid
-            if humanoid.Health <= 0 then
+            local distance = character and character:FindFirstChild('HumanoidRootPart') and (localRoot.Position - character.HumanoidRootPart.Position).Magnitude or math.huge
+            if not ShouldShowPlayer(player, character, distance) then
                 ClearTracer(player)
                 continue
             end
 
             local targetHead = character:FindFirstChild("Head") or character.HumanoidRootPart
-            local distance = (localRoot.Position - targetHead.Position).Magnitude
-            if distance > State.ESPDistance then
-                ClearTracer(player)
-                continue
-            end
-
             if not Caches.TracerCache[player] then
                 Caches.TracerCache[player] = CreateTracer(player)
             end
@@ -873,32 +987,16 @@ local function UpdateTracerESP()
     end
 end
 
-players.PlayerRemoving:Connect(function(player)
+Players.PlayerRemoving:Connect(function(player)
     SafeExecute(function()
         ClearESP(player)
         ClearSkeleton(player)
         ClearHealthESP(player)
         ClearTracer(player)
-        if State.FollowTarget == player then
-            if State.FollowConnection then
-                State.FollowConnection:Disconnect()
-                State.FollowConnection = nil
-            end
-            State.FollowTarget = nil
-        end
-        if State.SpectateTarget == player then
-            if State.SpectateConnection then
-                State.SpectateConnection:Disconnect()
-                State.SpectateConnection = nil
-            end
-            State.SpectateTarget = nil
-            State.SpectateEnabled = false
-            camera.CameraSubject = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
-        end
-    end)
+    end, "PlayerRemoving")
 end)
 
-players.PlayerAdded:Connect(function(player)
+Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function(character)
         character.AncestryChanged:Connect(function()
             if not character:IsDescendantOf(Workspace) then
@@ -907,7 +1005,7 @@ players.PlayerAdded:Connect(function(player)
                     ClearSkeleton(player)
                     ClearHealthESP(player)
                     ClearTracer(player)
-                end)
+                end, "CharacterAncestryChanged")
             end
         end)
         local humanoid = character:FindFirstChild('Humanoid')
@@ -918,48 +1016,8 @@ players.PlayerAdded:Connect(function(player)
                     ClearSkeleton(player)
                     ClearHealthESP(player)
                     ClearTracer(player)
-                end)
+                end, "HumanoidDied")
             end)
-        end
-    end)
-end)
-
-LocalPlayer.CharacterAdded:Connect(function(character)
-    SafeExecute(function()
-        local humanoid = character:WaitForChild('Humanoid', 5)
-        if humanoid then
-            if State.FlyEnabled then
-                if State.FlyConnection then
-                    State.FlyConnection:Disconnect()
-                    State.FlyConnection = nil
-                end
-                if State.OriginalGravity then
-                    Workspace.Gravity = State.OriginalGravity
-                    State.OriginalGravity = nil
-                end
-                UpdateFly()
-            end
-            if State.NoclipEnabled then
-                for _, part in ipairs(character:GetDescendants()) do
-                    if part:IsA('BasePart') then
-                        part.CanCollide = true
-                    end
-                end
-                UpdateNoclip()
-            end
-            if State.InfiniteJumpEnabled then
-                if State.FlyConnection then
-                    State.FlyConnection:Disconnect()
-                    State.FlyConnection = nil
-                end
-                UpdateInfiniteJump()
-            end
-            if State.WalkSpeedEnabled or State.JumpPowerEnabled then
-                UpdateMovement()
-            end
-            if not State.SpectateEnabled then
-                camera.CameraSubject = humanoid
-            end
         end
     end)
 end)
@@ -977,18 +1035,6 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
         State.AimbotLocking = false
     end
 end)
-
-local function GetPlayerNames()
-    local names = {}
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            table.insert(names, player.Name)
-        end
-    end
-    return names
-end
-
-
 
 local Window = Library:CreateWindow({
     Title = 'Rush Point X | By zixy.py2',
@@ -1031,6 +1077,20 @@ LegitGroup:AddToggle('AimbotFOVToggle', {
     end,
 })
 
+LegitGroup:AddToggle('Aimbot360FOVToggle', {
+    Text = '360 FOV',
+    Default = false,
+    Callback = function(Value)
+        State.Aimbot360FOV = Value
+        if State.Aimbot360FOV then
+            State.AimbotFOVEnabled = false
+            if State.AimbotFOVCircle then
+                State.AimbotFOVCircle.Visible = false
+            end
+        end
+    end,
+})
+
 LegitGroup:AddSlider('AimbotFOVSizeSlider', {
     Text = 'FOV Size',
     Default = Config.AimbotFOVRadius,
@@ -1050,6 +1110,15 @@ LegitGroup:AddSlider('AimbotSmoothingSlider', {
     Rounding = 0,
     Callback = function(Value)
         Config.AimbotSmoothing = Value
+    end,
+})
+
+LegitGroup:AddDropdown('AimbotHitPartDropdown', {
+    Text = 'Aimbot Hit Part',
+    Default = Config.AimbotHitPart,
+    Values = {'Head', 'UpperTorso', 'LowerTorso'},
+    Callback = function(Value)
+        Config.AimbotHitPart = Value
     end,
 })
 
@@ -1074,6 +1143,20 @@ RageGroup:AddToggle('SilentAimFOVToggle', {
     end,
 })
 
+RageGroup:AddToggle('SilentAim360FOVToggle', {
+    Text = '360 FOV',
+    Default = false,
+    Callback = function(Value)
+        State.SilentAim360FOV = Value
+        if State.SilentAim360FOV then
+            State.SilentAimFOVEnabled = false
+            if State.SilentAimFOVCircle then
+                State.SilentAimFOVCircle.Visible = false
+            end
+        end
+    end,
+})
+
 RageGroup:AddSlider('SilentAimFOVSizeSlider', {
     Text = 'FOV Size',
     Default = Config.SilentAimFOVRadius,
@@ -1082,6 +1165,46 @@ RageGroup:AddSlider('SilentAimFOVSizeSlider', {
     Rounding = 0,
     Callback = function(Value)
         Config.SilentAimFOVRadius = Value
+    end,
+})
+
+RageGroup:AddSlider('SilentAimHitchanceSlider', {
+    Text = 'Silent Aim Hitchance',
+    Default = Config.SilentAimHitchance,
+    Min = 0,
+    Max = 100,
+    Rounding = 0,
+    Suffix = '%',
+    Callback = function(Value)
+        Config.SilentAimHitchance = Value
+    end,
+})
+
+RageGroup:AddToggle('VisibleCheckToggle', {
+    Text = 'Visible Check',
+    Default = false,
+    Callback = function(Value)
+        State.VisibleCheckEnabled = Value
+    end,
+})
+
+RageGroup:AddToggle('RagebotToggle', {
+    Text = 'Enable Ragebot',
+    Default = false,
+    Callback = function(Value)
+        State.RagebotEnabled = Value
+        if not State.RagebotEnabled and State.IsRagebotShooting then
+            State.IsRagebotShooting = false
+        end
+    end,
+})
+
+RageGroup:AddDropdown('SilentAimHitPartDropdown', {
+    Text = 'Silent Aim Hit Part',
+    Default = Config.SilentAimHitPart,
+    Values = {'Head', 'UpperTorso', 'LowerTorso'},
+    Callback = function(Value)
+        Config.SilentAimHitPart = Value
     end,
 })
 
@@ -1177,8 +1300,10 @@ VisualsGroup:AddDropdown('TracerOriginDropdown', {
 VisualsGroup:AddToggle('ESPTeamCheckToggle', {
     Text = 'Team Check',
     Default = Config.TeamCheck,
+    Tooltip = 'Only show ESP for enemy players',
     Callback = function(Value)
         Config.TeamCheck = Value
+        SaveManager:Save('RushPointXConfig')
     end,
 })
 
@@ -1193,9 +1318,97 @@ PlayerGroup:AddToggle('NoclipToggle', {
     end,
 })
 
-
 local ExploitsGroup = Tabs.Exploits:AddLeftGroupbox('Exploit Controls')
 
+ExploitsGroup:AddToggle('RainbowGunToggle', {
+    Text = 'Rainbow Gun',
+    Default = false,
+    Tooltip = 'Applies a rainbow effect to the gun with ForceField material',
+    Callback = function(Value)
+        State.RainbowGunEnabled = Value
+        if Value then
+            State.CustomGunColorEnabled = false
+        end
+        UpdateGunAppearance()
+    end,
+})
+
+ExploitsGroup:AddToggle('CustomGunColorToggle', {
+    Text = 'Custom Gun Color',
+    Default = false,
+    Tooltip = 'Applies a custom color and transparency to the gun with ForceField material',
+    Callback = function(Value)
+        State.CustomGunColorEnabled = Value
+        if Value then
+            State.RainbowGunEnabled = false
+        end
+        UpdateGunAppearance()
+    end,
+})
+
+ExploitsGroup:AddLabel('CustomGunColorPicker'):AddColorPicker('ColorPicker', {
+    Text = 'Gun Color',
+    Default = Config.CustomGunColor,
+    Callback = function(Value)
+        Config.CustomGunColor = Value
+        if State.CustomGunColorEnabled then
+            UpdateGunAppearance()
+        end
+    end,
+})
+
+ExploitsGroup:AddSlider('CustomGunTransparencySlider', {
+    Text = 'Gun Transparency',
+    Default = Config.CustomGunTransparency,
+    Min = 0,
+    Max = 1,
+    Rounding = 2,
+    Callback = function(Value)
+        Config.CustomGunTransparency = Value
+        if State.CustomGunColorEnabled then
+            UpdateGunAppearance()
+        end
+    end,
+})
+
+ExploitsGroup:AddToggle('NoRecoilToggle', {
+    Text = 'No Recoil',
+    Default = false,
+    Tooltip = 'Disables weapon recoil',
+    Callback = function(Value)
+        State.NoRecoilEnabled = Value
+        SaveManager:Save('RushPointXConfig')
+    end,
+})
+
+ExploitsGroup:AddToggle('NoSpreadToggle', {
+    Text = 'No Spread',
+    Default = false,
+    Tooltip = 'Disables weapon spread',
+    Callback = function(Value)
+        State.NoSpreadEnabled = Value
+        if Value and not State.NoSpreadTask then
+            State.NoSpreadTask = coroutine.wrap(function()
+                while State.NoSpreadEnabled do
+                    local ModuleLoader = require(game:GetService("ReplicatedStorage").Modules.Shared.ModuleLoader)
+                    local LoadedModules = ModuleLoader.LoadedModules
+                    local WeaponInfo = LoadedModules.WeaponInfo
+                    for _, value in next, WeaponInfo do
+                        if type(value) == 'table' then
+                            value['Spread'] = 0
+                            value['MovementSpreadTime'] = 0
+                            value['MovementSpreadPenalty'] = 0
+                        end
+                    end
+                    wait(0.1)
+                end
+            end)()
+        elseif not Value and State.NoSpreadTask then
+            State.NoSpreadTask = nil
+        end
+        SaveManager:Save('RushPointXConfig')
+    end,
+})
 
 local MenuGroup = Tabs.Settings:AddLeftGroupbox('Menu')
 
@@ -1208,9 +1421,9 @@ MenuGroup:AddButton({
 })
 
 MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', {
+    Text = 'Menu keybind',
     Default = 'RightShift',
     NoUI = true,
-    Text = 'Menu keybind',
 })
 
 Library.ToggleKeybind = Options.MenuKeybind
@@ -1228,13 +1441,16 @@ Library:OnUnload(function()
     if State.FlyReinitializeConnection then
         State.FlyReinitializeConnection = nil
     end
-    if State.FollowConnection then
-        State.FollowConnection:Disconnect()
-        State.FollowConnection = nil
+    if State.FlyConnection then
+        State.FlyConnection:Disconnect()
+        State.FlyConnection = nil
     end
-    if State.SpectateConnection then
-        State.SpectateConnection:Disconnect()
-        State.SpectateConnection = nil
+    if State.WeaponConnection then
+        State.WeaponConnection:Disconnect()
+        State.WeaponConnection = nil
+    end
+    if State.NoSpreadTask then
+        State.NoSpreadTask = nil
     end
     network.FireServer = old
     recoil.AddRecoil = oldRecoil
@@ -1248,9 +1464,16 @@ Library:OnUnload(function()
     State.HealthESPEnabled = false
     State.TracerESPEnabled = false
     State.NoRecoilEnabled = false
+    State.NoSpreadEnabled = false
     State.WalkSpeedEnabled = false
     State.JumpPowerEnabled = false
-    State.SpectateEnabled = false
+    State.RagebotEnabled = false
+    State.IsRagebotShooting = false
+    State.VisibleCheckEnabled = false
+    State.SilentAim360FOV = false
+    State.Aimbot360FOV = false
+    State.RainbowGunEnabled = false
+    State.CustomGunColorEnabled = false
     UpdateFly()
     UpdateNoclip()
     UpdateInfiniteJump()
@@ -1258,7 +1481,7 @@ Library:OnUnload(function()
     UpdateSkeletonESP()
     UpdateHealthESP()
     UpdateTracerESP()
-    camera.CameraSubject = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid')
+    ResetGunAppearance()
     Library.Unloaded = true
 end)
 
@@ -1283,17 +1506,22 @@ coroutine.wrap(function()
         attempts = attempts + 1
     end
     if LocalPlayer.Character then
-        SafeExecute(UpdateMovement)
+        SafeExecute(UpdateMovement, "Initial Movement Update")
     end
 end)()
 
 RunService.RenderStepped:Connect(function()
-    SafeExecute(UpdateFOVCircle)
-    SafeExecute(UpdateNoclip)
-    SafeExecute(UpdateESP)
-    SafeExecute(UpdateSkeletonESP)
-    SafeExecute(UpdateHealthESP)
-    SafeExecute(UpdateTracerESP)
-    SafeExecute(UpdateAimbot)
-    SafeExecute(UpdateMovement)
+    SafeExecute(UpdateFOVCircle, "UpdateFOVCircle")
+    SafeExecute(UpdateNoclip, "UpdateNoclip")
+    SafeExecute(UpdateESP, "UpdateESP")
+    SafeExecute(UpdateSkeletonESP, "UpdateSkeletonESP")
+    SafeExecute(UpdateHealthESP, "UpdateHealthESP")
+    SafeExecute(UpdateTracerESP, "UpdateTracerESP")
+    SafeExecute(UpdateAimbot, "UpdateAimbot")
+    SafeExecute(UpdateMovement, "UpdateMovement")
+    SafeExecute(UpdateRagebot, "UpdateRagebot")
+    -- Reapply gun appearance if toggles are active
+    if State.RainbowGunEnabled or State.CustomGunColorEnabled then
+        SafeExecute(UpdateGunAppearance, "UpdateGunAppearance on RenderStepped")
+    end
 end)
