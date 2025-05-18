@@ -63,6 +63,7 @@ local State = {
     AimbotLocking = false,
     NoRecoilEnabled = false,
     NoSpreadEnabled = false,
+    RapidFireEnabled = false,
     WalkSpeedEnabled = false,
     JumpPowerEnabled = false,
     SilentAimFOVCircle = nil,
@@ -78,6 +79,9 @@ local State = {
     WeaponConnection = nil,
     RainbowHue = 0, -- Added for synchronized rainbow effect
     RainbowTask = nil, -- Tracks rainbow effect task
+    RapidFireTask = nil, -- Tracks rainbow effect task
+    NoSpreadTask = nil, -- Tracks rainbow effect task
+
 }
 
 local Caches = {
@@ -1421,7 +1425,32 @@ ExploitsGroup:AddToggle('NoSpreadToggle', {
         SaveManager:Save('RushPointXConfig')
     end,
 })
-
+ExploitsGroup:AddToggle('RapidFireToggle', {
+    Text = 'Rapid Fire',
+    Default = false,
+    Callback = function(Value)
+        State.RapidFireEnabled = Value
+        if Value then
+            State.RapidFireTask = task.spawn(function()
+                while State.RapidFireEnabled do
+                    local ModuleLoader = require(game:GetService("ReplicatedStorage").Modules.Shared.ModuleLoader)
+                    local WeaponInfo = ModuleLoader.LoadedModules.WeaponInfo
+                    for _, value in next, WeaponInfo do
+                        if type(value) == 'table' then
+                            value['FireRate'] = 0.01
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        else
+            if State.RapidFireTask then
+                task.cancel(State.RapidFireTask)
+                State.RapidFireTask = nil
+            end
+        end
+    end,
+})
 local MenuGroup = Tabs.Settings:AddLeftGroupbox('Menu')
 
 MenuGroup:AddButton({
@@ -1480,6 +1509,7 @@ Library:OnUnload(function()
     State.HealthESPEnabled = false
     State.TracerESPEnabled = false
     State.NoRecoilEnabled = false
+    State.RapidFireEnabled = false
     State.NoSpreadEnabled = false
     State.WalkSpeedEnabled = false
     State.JumpPowerEnabled = false
