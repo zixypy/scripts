@@ -1168,7 +1168,46 @@ RageGroup:AddToggle('SilentAim360FOVToggle', {
         end
     end,
 })
-
+RageGroup:AddToggle('WallbangToggle', {
+    Text = 'Wallbang',
+    Default = false,
+    Callback = function(Value)
+        State.WallbangEnabled = Value
+        if Value then
+            local oldRaycast = hookfunction(Workspace.FindPartOnRayWithIgnoreList, function(self, ray, ignoreList, ...)
+                if State.WallbangEnabled then
+                    local newIgnoreList = {LocalPlayer.Character or nil}
+                    for _, part in ipairs(Workspace:GetDescendants()) do
+                        if part:IsA('BasePart') or part:IsA('Decal') or part:IsA('Texture') and not part:IsDescendantOf(LocalPlayer.Character) then
+                            table.insert(newIgnoreList, part)
+                        end
+                    end
+                    return oldRaycast(self, ray, newIgnoreList, ...)
+                end
+                return oldRaycast(self, ray, ignoreList, ...)
+            end)
+            State.WallbangTask = task.spawn(function()
+                while State.WallbangEnabled do
+                    local ModuleLoader = require(game:GetService("ReplicatedStorage").Modules.Shared.ModuleLoader)
+                    local WeaponInfo = ModuleLoader.LoadedModules.WeaponInfo
+                    for _, value in next, WeaponInfo do
+                        if type(value) == 'table' and value.Penetration and type(value.Penetration) == 'table' then
+                            for k, v in pairs(value.Penetration) do
+                                value.Penetration[k] = math.huge
+                            end
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        else
+            if State.WallbangTask then
+                task.cancel(State.WallbangTask)
+                State.WallbangTask = nil
+            end
+        end
+    end,
+})
 RageGroup:AddSlider('SilentAimFOVSizeSlider', {
     Text = 'FOV Size',
     Default = Config.SilentAimFOVRadius,
@@ -1454,46 +1493,7 @@ ExploitsGroup:AddToggle('RapidFireToggle', {
         end
     end,
 })
-ExploitsGroup:AddToggle('WallbangToggle', {
-    Text = 'Wallbang',
-    Default = false,
-    Callback = function(Value)
-        State.WallbangEnabled = Value
-        if Value then
-            local oldRaycast = hookfunction(Workspace.FindPartOnRayWithIgnoreList, function(self, ray, ignoreList, ...)
-                if State.WallbangEnabled then
-                    local newIgnoreList = {LocalPlayer.Character or nil}
-                    for _, part in ipairs(Workspace:GetDescendants()) do
-                        if part:IsA('BasePart') or part:IsA('Decal') or part:IsA('Texture') and not part:IsDescendantOf(LocalPlayer.Character) then
-                            table.insert(newIgnoreList, part)
-                        end
-                    end
-                    return oldRaycast(self, ray, newIgnoreList, ...)
-                end
-                return oldRaycast(self, ray, ignoreList, ...)
-            end)
-            State.WallbangTask = task.spawn(function()
-                while State.WallbangEnabled do
-                    local ModuleLoader = require(game:GetService("ReplicatedStorage").Modules.Shared.ModuleLoader)
-                    local WeaponInfo = ModuleLoader.LoadedModules.WeaponInfo
-                    for _, value in next, WeaponInfo do
-                        if type(value) == 'table' and value.Penetration and type(value.Penetration) == 'table' then
-                            for k, v in pairs(value.Penetration) do
-                                value.Penetration[k] = math.huge
-                            end
-                        end
-                    end
-                    task.wait(0.1)
-                end
-            end)
-        else
-            if State.WallbangTask then
-                task.cancel(State.WallbangTask)
-                State.WallbangTask = nil
-            end
-        end
-    end,
-})
+
 local MenuGroup = Tabs.Settings:AddLeftGroupbox('Menu')
 
 MenuGroup:AddButton({
