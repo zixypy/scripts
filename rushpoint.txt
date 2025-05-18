@@ -1330,7 +1330,7 @@ PlayerGroup:AddToggle('NoclipToggle', {
 local ExploitsGroup = Tabs.Exploits:AddLeftGroupbox('Exploit Controls')
 
 ExploitsGroup:AddToggle('RainbowGunToggle', {
-    Text = 'Rainbow Gun',
+    Text = 'Rainbow Gun Chams',
     Default = false,
     Tooltip = 'Applies a rainbow effect to the gun with ForceField material',
     Callback = function(Value)
@@ -1350,7 +1350,7 @@ ExploitsGroup:AddToggle('RainbowGunToggle', {
 })
 
 ExploitsGroup:AddToggle('CustomGunColorToggle', {
-    Text = 'Custom Gun Color',
+    Text = 'Custom Gun Chams',
     Default = false,
     Tooltip = 'Applies a custom color and transparency to the gun with ForceField material',
     Callback = function(Value)
