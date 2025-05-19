@@ -1178,7 +1178,7 @@ RageGroup:AddToggle('WallbangToggle', {
                 if State.WallbangEnabled then
                     local newIgnoreList = {LocalPlayer.Character or nil}
                     for _, part in ipairs(Workspace:GetDescendants()) do
-                        if part:IsA('BasePart') or part:IsA('Decal') or part:IsA('Texture') and not part:IsDescendantOf(LocalPlayer.Character) then
+                        if part:IsA('BasePart') and not part:IsDescendantOf(LocalPlayer.Character) then
                             table.insert(newIgnoreList, part)
                         end
                     end
