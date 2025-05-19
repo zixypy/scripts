@@ -1169,7 +1169,7 @@ RageGroup:AddToggle('SilentAim360FOVToggle', {
     end,
 })
 RageGroup:AddToggle('WallbangToggle', {
-    Text = 'Wallbang',
+    Text = 'Semi-Wallbang',
     Default = false,
     Callback = function(Value)
         State.WallbangEnabled = Value
