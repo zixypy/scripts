@@ -628,7 +628,7 @@ end
 local function ClearHealthESP(player)
     if Caches.HealthCache[player] then
         Caches.HealthCache[player].BarBackground:Remove()
-        Caches.HhealthCache[player].Bar:Remove()
+        Caches.HealthCache[player].Bar:Remove()
         Caches.HealthCache[player].Text:Remove()
         Caches.HealthCache[player] = nil
     end
