@@ -448,15 +448,18 @@ local function UpdateMovement()
     local humanoid = LocalPlayer.Character.Humanoid
     if State.WalkSpeedEnabled then
         humanoid.WalkSpeed = Config.WalkSpeed
-    else
-        humanoid.WalkSpeed = 16
     end
     if State.JumpPowerEnabled then
         humanoid.JumpPower = Config.JumpPower
-    else
+    end
+    if not State.WalkSpeedEnabled then
+        humanoid.WalkSpeed = 16
+    end
+    if not State.JumpPowerEnabled then
         humanoid.JumpPower = 50
     end
 end
+
 
 local function CreateESP(player)
     local esp = {
@@ -1257,7 +1260,9 @@ LocalPlayer.CharacterAdded:Connect(function(character)
         return
     end
 
-    UpdateMovement()
+    if State.WalkSpeedEnabled or State.JumpPowerEnabled then
+        UpdateMovement()
+    end
     if State.FlyEnabled then
         UpdateFly()
     end
@@ -1272,7 +1277,9 @@ end)
 if LocalPlayer.Character then
     local humanoid = LocalPlayer.Character:FindFirstChild('Humanoid')
     if humanoid then
-        UpdateMovement()
+        if State.WalkSpeedEnabled or State.JumpPowerEnabled then
+            UpdateMovement()
+        end
         if State.FlyEnabled then
             UpdateFly()
         end
@@ -1624,6 +1631,9 @@ PlayerGroup:AddToggle('FlyToggle', {
     Callback = function(Value)
         State.FlyEnabled = Value
         UpdateFly()
+        if Value then
+            UpdateMovement()
+        end
     end,
 })
 
@@ -1636,6 +1646,9 @@ PlayerGroup:AddSlider('FlySpeedSlider', {
     Suffix = '',
     Callback = function(Value)
         Config.FlySpeed = Value
+        if State.FlyEnabled then
+            UpdateMovement()
+        end
     end,
 })
 
@@ -1645,6 +1658,9 @@ PlayerGroup:AddToggle('NoclipToggle', {
     Callback = function(Value)
         State.NoclipEnabled = Value
         UpdateNoclip()
+        if Value then
+            UpdateMovement()
+        end
     end,
 })
 
@@ -1654,6 +1670,9 @@ PlayerGroup:AddToggle('InfiniteJumpToggle', {
     Callback = function(Value)
         State.InfiniteJumpEnabled = Value
         UpdateInfiniteJump()
+        if Value then
+            UpdateMovement()
+        end
     end,
 })
 
@@ -1777,7 +1796,6 @@ RunService.RenderStepped:Connect(function()
     SafeExecute(UpdateChams)
     SafeExecute(UpdateAimbot)
     SafeExecute(UpdateTriggerbot)
-    SafeExecute(UpdateMovement)
     SafeExecute(UpdateCameraFreeze)
     SafeExecute(HandleWallbangTeleport)
     SafeExecute(UpdateRagebot)
