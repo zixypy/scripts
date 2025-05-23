@@ -1,0 +1,1620 @@
+local Players = game:GetService('Players')
+local RunService = game:GetService('RunService')
+local Workspace = game:GetService('Workspace')
+local UserInputService = game:GetService('UserInputService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+
+local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
+local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
+local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
+local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+ThemeManager:SetFolder('BigPaintball2Aimbot')
+SaveManager:SetFolder('BigPaintball2Aimbot')
+ThemeManager:SaveDefault('Tokyo Night')
+
+local Camera = Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Config = {
+    HitPart = 'Head',
+    TeamCheck = true,
+    Distance = 7,
+    FreezeTolerance = 0.1,
+    FOVColor = Color3.fromRGB(255, 255, 255),
+    FOVRadius = 100,
+    Smoothing = 10,
+    RapidFireAmount = 1000,
+    PredictionFactor = 0.5,
+    SpinbotSpeed = 50,
+    SkeletonESPColor = Color3.new(0.403922, 0.349020, 0.701961),
+    ChamsColor = Color3.new(1, 0, 0),
+}
+local ESPSettings = {
+    BoxEnabled = true,
+    BoxColor = Color3.new(0.403922, 0.349020, 0.701961),
+}
+local BulletTPEnabled = false
+local SilentAimEnabled = false
+local AimbotEnabled = false
+local PredictionEnabled = false
+local FOVEnabled = false
+local RapidFireEnabled = false
+local ESPCustomEnabled = false
+local NameESPEnabled = false
+local DistanceESPEnabled = false
+local SkeletonESPEnabled = false
+local HealthESPEnabled = false
+local ChamsEnabled = false
+local SpinbotEnabled = false
+local KillAllEnabled = false
+local SessionID = string.gsub(tostring(math.random()):sub(3), '%d', function(c)
+    return string.char(96 + math.random(1, 26))
+end)
+local LastPositions = {}
+local LastTeleportedPlayer = nil
+local LastTeleportedPlayerOriginalPos = nil
+local LastSilentAimPlayer = nil
+local LastSilentAimPlayerOriginalPos = nil
+local FOVCircle = nil
+local AimbotTarget = nil
+local IsRightClickHeld = false
+local TeleportLog = {}
+local Caches = {
+    ESPCache = {},
+    SkeletonCache = {},
+    HealthCache = {},
+    ChamsCache = {},
+}
+
+local Cheat = {
+    Modules = {
+        GunUtils = require(ReplicatedStorage.Library.GunUtils),
+    },
+    CachedFunctions = {},
+}
+table.insert(Cheat.CachedFunctions, Cheat.Modules.GunUtils.ComputeFireRateRPM)
+
+Cheat.Modules.GunUtils.ComputeFireRateRPM = function(...)
+    if not RapidFireEnabled then
+        return Cheat.CachedFunctions[1](...)
+    end
+    return Config.RapidFireAmount
+end
+
+local function SafeExecute(func)
+    local success, errorMessage = pcall(func)
+    if not success then
+        warn("Error in SafeExecute: " .. tostring(errorMessage))
+    end
+end
+
+local function SetPlayerTransparency(player, transparency)
+    if player and player.Character then
+        for _, part in ipairs(player.Character:GetDescendants()) do
+            if part:IsA('BasePart') then
+                part.Transparency = transparency
+                part.CanCollide = (transparency == 0)
+                part.LocalTransparencyModifier = transparency
+            elseif part:IsA('Decal') then
+                part.Transparency = transparency
+            end
+        end
+        local tool = player.Character:FindFirstChildOfClass('Tool')
+        if tool then
+            for _, part in ipairs(tool:GetDescendants()) do
+                if part:IsA('BasePart') then
+                    part.Transparency = transparency
+                    part.LocalTransparencyModifier = transparency
+                elseif part:IsA('Decal') then
+                    part.Transparency = transparency
+                end
+            end
+        end
+    end
+end
+
+local function RemoveAdornments()
+    SafeExecute(function()
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if
+                obj:IsA('SelectionBox')
+                or obj:IsA('BoxHandleAdornment')
+                or obj:IsA('BillboardGui')
+                or obj:IsA('SurfaceGui')
+            then
+                obj:Destroy()
+            end
+        end
+        if LastTeleportedPlayer and LastTeleportedPlayer.Character then
+            for _, obj in ipairs(LastTeleportedPlayer.Character:GetDescendants()) do
+                if obj:IsA('SelectionBox') or obj:IsA('BoxHandleAdornment') then
+                    obj:Destroy()
+                end
+            end
+        end
+        if LastSilentAimPlayer and LastSilentAimPlayer.Character then
+            for _, obj in ipairs(LastSilentAimPlayer.Character:GetDescendants()) do
+                if obj:IsA('SelectionBox') or obj:IsA('BoxHandleAdornment') then
+                    obj:Destroy()
+                end
+            end
+        end
+    end)
+end
+
+local function ClearESP(player)
+    if Caches.ESPCache[player] then
+        Caches.ESPCache[player].Box:Remove()
+        Caches.ESPCache[player].Name:Remove()
+        Caches.ESPCache[player].Distance:Remove()
+        Caches.ESPCache[player] = nil
+    end
+end
+
+local function ClearSkeleton(player)
+    if Caches.SkeletonCache[player] then
+        for _, line in pairs(Caches.SkeletonCache[player]) do
+            line:Remove()
+        end
+        Caches.SkeletonCache[player] = nil
+    end
+end
+
+local function ClearHealthESP(player)
+    if Caches.HealthCache[player] then
+        Caches.HealthCache[player].BarBackground:Remove()
+        Caches.HealthCache[player].Bar:Remove()
+        Caches.HealthCache[player].Text:Remove()
+        Caches.HealthCache[player] = nil
+    end
+end
+
+local function ClearChams(player)
+    if Caches.ChamsCache[player] then
+        Caches.ChamsCache[player]:Destroy()
+        Caches.ChamsCache[player] = nil
+    end
+end
+
+local function ClearAllESP(player)
+    ClearESP(player)
+    ClearSkeleton(player)
+    ClearHealthESP(player)
+    ClearChams(player)
+end
+
+local function is_target_visible(target, hitPart)
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') or not target or not target:FindFirstChild(hitPart) then
+        return false
+    end
+
+    local rayOrigin = Camera.CFrame.Position
+    local rayDirection = (target[hitPart].Position - rayOrigin).Unit * 1000
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+    local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    if raycastResult then
+        local hitInstance = raycastResult.Instance
+        return hitInstance and hitInstance:IsDescendantOf(target)
+    end
+    return false
+end
+
+local function FindPlayerInFOV()
+    if
+        not LocalPlayer.Character
+        or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+    then
+        return nil
+    end
+
+    local centerPos = UserInputService:GetMouseLocation()
+    local team = LocalPlayer.Team
+    local closestPlayer = nil
+    local closestDistance = Config.FOVRadius
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        SafeExecute(function()
+            if
+                player == LocalPlayer
+                or not player.Character
+                or not player.Character:FindFirstChild('HumanoidRootPart')
+            then
+                return
+            end
+            if
+                (Config.TeamCheck and team and player.Team == team)
+                or player.Character:FindFirstChild('ForceField')
+            then
+                return
+            end
+
+            local hitPart = player.Character:FindFirstChild(Config.HitPart)
+                or player.Character.HumanoidRootPart
+            local screenPos, onScreen = Camera:WorldToViewportPoint(
+                hitPart.Position
+            )
+            if onScreen then
+                local distance = (
+                    Vector2.new(screenPos.X, screenPos.Y) - centerPos
+                ).Magnitude
+                if distance <= closestDistance then
+                    closestDistance = distance
+                    closestPlayer = player
+                end
+            end
+        end)
+    end
+
+    return closestPlayer
+end
+
+local function GetCursorWorldPosition()
+    local mousePos = UserInputService:GetMouseLocation()
+    local ray = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    local raycastResult = Workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
+    if raycastResult then
+        return raycastResult.Position
+    end
+    return ray.Origin + ray.Direction * 1000
+end
+
+local function TeleportPlayerInFOV()
+    if
+        not BulletTPEnabled
+        or not LocalPlayer.Character
+        or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+    then
+        if
+            LastTeleportedPlayer
+            and LastTeleportedPlayer.Character
+            and LastTeleportedPlayer.Character:FindFirstChild(
+                'HumanoidRootPart'
+            )
+        then
+            local hitPart = LastTeleportedPlayer.Character:FindFirstChild(
+                Config.HitPart
+            ) or LastTeleportedPlayer.Character.HumanoidRootPart
+            hitPart.Anchored = false
+            hitPart.CanCollide = true
+            if LastTeleportedPlayerOriginalPos then
+                hitPart.CFrame = CFrame.new(LastTeleportedPlayerOriginalPos)
+            end
+            LastPositions[hitPart] = nil
+            SetPlayerTransparency(LastTeleportedPlayer, 0)
+            RemoveAdornments()
+            LastTeleportedPlayer = nil
+            LastTeleportedPlayerOriginalPos = nil
+        end
+        return
+    end
+
+    local targetCFrame = Camera.CFrame * CFrame.new(0, 0, -Config.Distance)
+    local targetPlayer = FindPlayerInFOV()
+
+    if
+        LastTeleportedPlayer
+        and LastTeleportedPlayer.Character
+        and LastTeleportedPlayerOriginalPos
+    then
+        local hitPart = LastTeleportedPlayer.Character:FindFirstChild(
+            Config.HitPart
+        ) or LastTeleportedPlayer.Character.HumanoidRootPart
+        local screenPos, onScreen = Camera:WorldToViewportPoint(
+            hitPart.Position
+        )
+        if
+            not onScreen
+            or (
+                    Vector2.new(screenPos.X, screenPos.Y)
+                    - UserInputService:GetMouseLocation()
+                ).Magnitude
+                > Config.FOVRadius
+        then
+            SafeExecute(function()
+                hitPart.Anchored = false
+                hitPart.CanCollide = true
+                hitPart.CFrame = CFrame.new(LastTeleportedPlayerOriginalPos)
+                LastPositions[hitPart] = nil
+                SetPlayerTransparency(LastTeleportedPlayer, 0)
+                RemoveAdornments()
+                LastTeleportedPlayer = nil
+                LastTeleportedPlayerOriginalPos = nil
+            end)
+        end
+    end
+
+    if
+        targetPlayer
+        and targetPlayer.Character
+        and targetPlayer.Character:FindFirstChild('HumanoidRootPart')
+    then
+        SafeExecute(function()
+            local hitPart = targetPlayer.Character:FindFirstChild(
+                Config.HitPart
+            ) or targetPlayer.Character.HumanoidRootPart
+            local currentPos = hitPart.Position
+
+            if targetPlayer ~= LastTeleportedPlayer then
+                LastTeleportedPlayerOriginalPos = currentPos
+                local screenPos, onScreen = Camera:WorldToViewportPoint(
+                    currentPos
+                )
+                if onScreen then
+                    table.insert(TeleportLog, {
+                        Player = targetPlayer.Name,
+                        Position = LastTeleportedPlayerOriginalPos,
+                        Timestamp = os.time(),
+                    })
+                else
+                    return
+                end
+            end
+
+            local lastPos = LastPositions[hitPart]
+            if
+                lastPos
+                and (lastPos - targetCFrame.Position).Magnitude
+                    < Config.FreezeTolerance
+            then
+                return
+            end
+
+            if hitPart:CanSetNetworkOwnership() then
+                hitPart:SetNetworkOwner(LocalPlayer)
+            end
+            hitPart.CanCollide = false
+            hitPart.Massless = true
+            hitPart.Anchored = true
+            hitPart.CFrame = targetCFrame
+            LastPositions[hitPart] = targetCFrame.Position
+            LastTeleportedPlayer = targetPlayer
+            SetPlayerTransparency(targetPlayer, 1)
+            ClearAllESP(targetPlayer)
+            RemoveAdornments()
+        end)
+    end
+end
+
+local function SilentAimTeleport()
+    if
+        not SilentAimEnabled
+        or not LocalPlayer.Character
+        or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+    then
+        if
+            LastSilentAimPlayer
+            and LastSilentAimPlayer.Character
+            and LastSilentAimPlayer.Character:FindFirstChild(
+                'HumanoidRootPart'
+            )
+        then
+            local hitPart = LastSilentAimPlayer.Character:FindFirstChild(
+                Config.HitPart
+            ) or LastSilentAimPlayer.Character.HumanoidRootPart
+            hitPart.Anchored = false
+            hitPart.CanCollide = true
+            if LastSilentAimPlayerOriginalPos then
+                hitPart.CFrame = CFrame.new(LastSilentAimPlayerOriginalPos)
+            end
+            LastPositions[hitPart] = nil
+            SetPlayerTransparency(LastSilentAimPlayer, 0)
+            RemoveAdornments()
+            LastSilentAimPlayer = nil
+            LastSilentAimPlayerOriginalPos = nil
+        end
+        return
+    end
+
+    local targetPlayer = FindPlayerInFOV()
+
+    if
+        LastSilentAimPlayer
+        and LastSilentAimPlayer.Character
+        and LastSilentAimPlayerOriginalPos
+    then
+        local hitPart = LastSilentAimPlayer.Character:FindFirstChild(
+            Config.HitPart
+        ) or LastSilentAimPlayer.Character.HumanoidRootPart
+        local screenPos, onScreen = Camera:WorldToViewportPoint(
+            hitPart.Position
+        )
+        if
+            not onScreen
+            or (
+                    Vector2.new(screenPos.X, screenPos.Y)
+                    - UserInputService:GetMouseLocation()
+                ).Magnitude
+                > Config.FOVRadius
+            or not is_target_visible(LastSilentAimPlayer.Character, Config.HitPart)
+        then
+            SafeExecute(function()
+                hitPart.Anchored = false
+                hitPart.CanCollide = true
+                hitPart.CFrame = CFrame.new(LastSilentAimPlayerOriginalPos)
+                LastPositions[hitPart] = nil
+                SetPlayerTransparency(LastSilentAimPlayer, 0)
+                RemoveAdornments()
+                LastSilentAimPlayer = nil
+                LastSilentAimPlayerOriginalPos = nil
+            end)
+        end
+    end
+
+    if
+        targetPlayer
+        and targetPlayer.Character
+        and targetPlayer.Character:FindFirstChild('HumanoidRootPart')
+        and is_target_visible(targetPlayer.Character, Config.HitPart)
+    then
+        SafeExecute(function()
+            local hitPart = targetPlayer.Character:FindFirstChild(
+                Config.HitPart
+            ) or targetPlayer.Character.HumanoidRootPart
+            local currentPos = hitPart.Position
+
+            if targetPlayer ~= LastSilentAimPlayer then
+                LastSilentAimPlayerOriginalPos = currentPos
+                local screenPos, onScreen = Camera:WorldToViewportPoint(
+                    currentPos
+                )
+                if onScreen then
+                    table.insert(TeleportLog, {
+                        Player = targetPlayer.Name,
+                        Position = LastSilentAimPlayerOriginalPos,
+                        Timestamp = os.time(),
+                    })
+                else
+                    return
+                end
+            end
+
+            local targetCFrame = Camera.CFrame * CFrame.new(0, 0, -Config.Distance)
+            local lastPos = LastPositions[hitPart]
+            if
+                lastPos
+                and (lastPos - targetCFrame.Position).Magnitude
+                    < Config.FreezeTolerance
+            then
+                return
+            end
+
+            if hitPart:CanSetNetworkOwnership() then
+                hitPart:SetNetworkOwner(LocalPlayer)
+            end
+            hitPart.CanCollide = false
+            hitPart.Massless = true
+            hitPart.Anchored = true
+            hitPart.CFrame = targetCFrame
+            LastPositions[hitPart] = targetCFrame.Position
+            LastSilentAimPlayer = targetPlayer
+            SetPlayerTransparency(targetPlayer, 1)
+            ClearAllESP(targetPlayer)
+            RemoveAdornments()
+        end)
+    end
+end
+
+local function UpdateAimbot()
+    if
+        not AimbotEnabled
+        or not IsRightClickHeld
+        or not LocalPlayer.Character
+        or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+    then
+        AimbotTarget = nil
+        return
+    end
+
+    AimbotTarget = FindPlayerInFOV()
+    if
+        AimbotTarget
+        and AimbotTarget.Character
+        and AimbotTarget.Character:FindFirstChild('Head')
+    then
+        local headPos = AimbotTarget.Character.Head.Position
+        if
+            PredictionEnabled
+            and AimbotTarget.Character:FindFirstChild('HumanoidRootPart')
+        then
+            local targetRoot = AimbotTarget.Character.HumanoidRootPart
+            local velocity = targetRoot.Velocity
+            local distance = (Camera.CFrame.Position - headPos).Magnitude
+            local travelTime = distance / 100
+            local predictionOffset = velocity
+                * travelTime
+                * Config.PredictionFactor
+            predictionOffset = predictionOffset.Unit
+                * math.min(predictionOffset.Magnitude, 10)
+            predictionOffset = predictionOffset + Vector3.new(0, 7, 0)
+            headPos = headPos + predictionOffset
+        end
+        local lookAtCFrame = CFrame.new(Camera.CFrame.Position, headPos)
+        local smoothingFactor = 1 - (Config.Smoothing / 20)
+        Camera.CFrame = Camera.CFrame:Lerp(lookAtCFrame, smoothingFactor)
+    end
+end
+
+local function CreateFOVCircle()
+    local circle = Drawing.new('Circle')
+    circle.Thickness = 2
+    circle.Color = Config.FOVColor
+    circle.Filled = false
+    circle.Transparency = 1
+    circle.Visible = false
+    circle.ZIndex = 1
+    circle.Radius = Config.FOVRadius
+    circle.Position = UserInputService:GetMouseLocation()
+    return circle
+end
+
+local function UpdateFOVCircle()
+    if not FOVCircle then
+        FOVCircle = CreateFOVCircle()
+    end
+
+    FOVCircle.Position = UserInputService:GetMouseLocation()
+    FOVCircle.Radius = Config.FOVRadius
+    FOVCircle.Visible = FOVEnabled
+end
+
+local function UpdateSpinbot()
+    if
+        SpinbotEnabled
+        and LocalPlayer.Character
+        and LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+    then
+        local rootPart = LocalPlayer.Character.HumanoidRootPart
+        local spinSpeed = Config.SpinbotSpeed
+        local newCFrame = rootPart.CFrame
+            * CFrame.Angles(0, math.rad(spinSpeed), 0)
+        rootPart.CFrame = newCFrame
+    end
+end
+
+local function TeleportEntities(cframe, team)
+    if not cframe then return end
+
+    local spawnPosition = cframe * CFrame.new(0, 0, -10)
+
+    local entitiesFolder = Workspace:FindFirstChild('__THINGS') and Workspace.__THINGS:FindFirstChild('__ENTITIES')
+    if entitiesFolder then
+        for _, entity in ipairs(entitiesFolder:GetChildren()) do
+            SafeExecute(function()
+                if entity:FindFirstChild('HumanoidRootPart') then
+                    local humanoidRootPart = entity.HumanoidRootPart
+                    if humanoidRootPart:CanSetNetworkOwnership() then
+                        humanoidRootPart:SetNetworkOwner(LocalPlayer)
+                    end
+                    humanoidRootPart.CanCollide = false
+                    humanoidRootPart.Anchored = true
+                    humanoidRootPart.CFrame = spawnPosition
+                    local humanoid = entity:FindFirstChild('Humanoid')
+                    if humanoid then
+                        humanoid.WalkSpeed = 0
+                        humanoid.JumpPower = 0
+                    end
+                elseif entity:FindFirstChild('Hitbox') then
+                    local directory = entity:GetAttribute('Directory')
+                    if not (directory == 'White' and entity:GetAttribute('OwnerUID') == LocalPlayer.UserId) then
+                        local hitbox = entity.Hitbox
+                        if hitbox:CanSetNetworkOwnership() then
+                            hitbox:SetNetworkOwner(LocalPlayer)
+                        end
+                        hitbox.CanCollide = false
+                        hitbox.Anchored = true
+                        hitbox.CFrame = spawnPosition
+                    end
+                end
+            end)
+        end
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        SafeExecute(function()
+            if
+                player ~= LocalPlayer
+                and player.Character
+                and player.Character:FindFirstChild('HumanoidRootPart')
+                and player.Character:FindFirstChild('Humanoid')
+            then
+                if not (Config.TeamCheck and team and player.Team == team) then
+                    if not player.Character:FindFirstChild('ForceField') then
+                        local humanoidRootPart = player.Character.HumanoidRootPart
+                        if humanoidRootPart:CanSetNetworkOwnership() then
+                            humanoidRootPart:SetNetworkOwner(LocalPlayer)
+                        end
+                        humanoidRootPart.CanCollide = false
+                        humanoidRootPart.Anchored = true
+                        humanoidRootPart.CFrame = spawnPosition
+                        local humanoid = player.Character.Humanoid
+                        humanoid.WalkSpeed = 0
+                        humanoid.JumpPower = 0
+                        ClearAllESP(player)
+                    end
+                end
+            end
+        end)
+    end
+end
+
+local function RestoreEntities()
+    SafeExecute(function()
+        local entitiesFolder = Workspace:FindFirstChild('__THINGS')
+            and Workspace.__THINGS:FindFirstChild('__ENTITIES')
+        if entitiesFolder then
+            for _, entity in ipairs(entitiesFolder:GetChildren()) do
+                if entity:FindFirstChild('HumanoidRootPart') then
+                    entity.HumanoidRootPart.Anchored = false
+                    entity.HumanoidRootPart.CanCollide = true
+                    local humanoid = entity:FindFirstChild('Humanoid')
+                    if humanoid then
+                        humanoid.WalkSpeed = 16
+                        humanoid.JumpPower = 50
+                    end
+                elseif entity:FindFirstChild('Hitbox') then
+                    entity.Hitbox.Anchored = false
+                    entity.Hitbox.CanCollide = true
+                end
+            end
+        end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if
+                player ~= LocalPlayer
+                and player.Character:FindFirstChild('Humanoid') then                player.Character.HumanoidRootPart.Anchored = false
+                player.Character.HumanoidRootPart.CanCollide = true
+                player.Character.Humanoid.WalkSpeed = 16
+                player.Character.Humanoid.JumpPower = 50
+            end
+        end
+    end)
+end
+
+local function UpdateKillAll()
+    SafeExecute(function()
+        if
+            not KillAllEnabled
+            or not LocalPlayer.Character
+            or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+        then
+            RestoreEntities()
+            return
+        end
+
+        local cframe = LocalPlayer.Character.HumanoidRootPart.CFrame
+        local team = LocalPlayer.Team
+        TeleportEntities(cframe, team)
+    end)
+end
+
+local function CreateESP(player)
+    local esp = {
+        Box = Drawing.new('Square'),
+        Name = Drawing.new('Text'),
+        Distance = Drawing.new('Text'),
+    }
+
+    esp.Box.Thickness = 2
+    esp.Box.Color = ESPSettings.BoxColor
+    esp.Box.Filled = false
+    esp.Box.Visible = false
+
+    esp.Name.Size = 16
+    esp.Name.Color = Color3.new(1, 1, 1)
+    esp.Name.Outline = true
+    esp.Name.Center = true
+    esp.Name.Visible = false
+
+    esp.Distance.Size = 16
+    esp.Distance.Color = Color3.new(1, 1, 1)
+    esp.Distance.Outline = true
+    esp.Distance.Center = true
+    esp.Distance.Visible = false
+
+    return esp
+end
+
+local function CreateSkeleton(player)
+    local skeleton = {
+        HeadToNeck = Drawing.new('Line'),
+        NeckToUpperTorso = Drawing.new('Line'),
+        UpperTorsoToLowerTorso = Drawing.new('Line'),
+        UpperTorsoToLeftUpperArm = Drawing.new('Line'),
+        LeftUpperArmToLeftLowerArm = Drawing.new('Line'),
+        LeftLowerArmToLeftHand = Drawing.new('Line'),
+        UpperTorsoToRightUpperArm = Drawing.new('Line'),
+        RightUpperArmToRightLowerArm = Drawing.new('Line'),
+        RightLowerArmToRightHand = Drawing.new('Line'),
+        LowerTorsoToLeftUpperLeg = Drawing.new('Line'),
+        LeftUpperLegToLeftLowerLeg = Drawing.new('Line'),
+        LeftLowerLegToLeftFoot = Drawing.new('Line'),
+        LowerTorsoToRightUpperLeg = Drawing.new('Line'),
+        RightUpperLegToRightLowerLeg = Drawing.new('Line'),
+        RightLowerLegToRightFoot = Drawing.new('Line'),
+    }
+
+    for _, line in pairs(skeleton) do
+        line.Thickness = 2
+        line.Color = Config.SkeletonESPColor
+        line.Visible = false
+    end
+
+    return skeleton
+end
+
+local function CreateHealthESP(player)
+    local health = {
+        BarBackground = Drawing.new('Square'),
+        Bar = Drawing.new('Square'),
+        Text = Drawing.new('Text'),
+    }
+
+    health.BarBackground.Size = Vector2.new(50, 5)
+    health.BarBackground.Color = Color3.new(0, 0, 0)
+    health.BarBackground.Filled = true
+    health.BarBackground.Transparency = 0.5
+    health.BarBackground.Visible = false
+
+    health.Bar.Size = Vector2.new(50, 5)
+    health.Bar.Color = Color3.new(0, 1, 0)
+    health.Bar.Filled = true
+    health.Bar.Visible = false
+
+    health.Text.Size = 12
+    health.Text.Color = Color3.new(1, 1, 1)
+    health.Text.Outline = true
+    health.Text.Center = true
+    health.Text.Visible = false
+
+    return health
+end
+
+local function CreateChams(player)
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = Config.ChamsColor
+    highlight.OutlineColor = Color3.new(1, 1, 1)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = player.Character
+    highlight.Adornee = player.Character
+    return highlight
+end
+
+local function UpdateESP()
+    if not (ESPCustomEnabled or NameESPEnabled or DistanceESPEnabled) then
+        for player, _ in pairs(Caches.ESPCache) do
+            ClearESP(player)
+        end
+        return
+    end
+
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        for player, _ in pairs(Caches.ESPCache) do
+            ClearESP(player)
+        end
+        return
+    end
+
+    local localRoot = LocalPlayer.Character.HumanoidRootPart
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+
+        if not player.Character or not player.Character:FindFirstChild('HumanoidRootPart') or not player.Character:FindFirstChild('Humanoid') then
+            ClearESP(player)
+            continue
+        end
+
+        local character = player.Character
+        local humanoid = character.Humanoid
+        if humanoid.Health <= 0 then
+            ClearESP(player)
+            continue
+        end
+
+        local targetRoot = character.HumanoidRootPart
+        local distance = (localRoot.Position - targetRoot.Position).Magnitude
+        if distance > 325 then
+            ClearESP(player)
+            continue
+        end
+
+        if Config.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+            ClearESP(player)
+            continue
+        end
+
+        if (BulletTPEnabled and player == LastTeleportedPlayer) or (SilentAimEnabled and player == LastSilentAimPlayer) then
+            ClearESP(player)
+            continue
+        end
+
+        if not Caches.ESPCache[player] then
+            Caches.ESPCache[player] = CreateESP(player)
+        end
+
+        local esp = Caches.ESPCache[player]
+        local rootPos, onScreen = Camera:WorldToViewportPoint(targetRoot.Position)
+        if onScreen then
+            local head = character:FindFirstChild("Head")
+            local topPos = head and Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1, 0)) or Camera:WorldToViewportPoint(targetRoot.Position + Vector3.new(0, 3, 0))
+            local bottomPos = Camera:WorldToViewportPoint(targetRoot.Position - Vector3.new(0, 3, 0))
+            local height = math.abs(topPos.Y - bottomPos.Y)
+            local width = height * 0.5
+            local centerPos = Vector2.new(rootPos.X, (topPos.Y + bottomPos.Y) / 2)
+            esp.Box.Size = Vector2.new(width, height)
+            esp.Box.Position = centerPos - Vector2.new(width / 2, height / 2)
+            esp.Box.Visible = ESPSettings.BoxEnabled and ESPCustomEnabled
+            esp.Name.Text = player.Name
+            esp.Name.Position = Vector2.new(rootPos.X, topPos.Y - 20)
+            esp.Name.Visible = NameESPEnabled
+            esp.Distance.Text = tostring(math.floor(distance)) .. " studs"
+            esp.Distance.Position = Vector2.new(rootPos.X, bottomPos.Y + 5)
+            esp.Distance.Visible = DistanceESPEnabled
+        else
+            esp.Box.Visible = false
+            esp.Name.Visible = false
+            esp.Distance.Visible = false
+        end
+    end
+end
+
+local function UpdateSkeletonESP()
+    if not SkeletonESPEnabled then
+        for player, _ in pairs(Caches.SkeletonCache) do
+            ClearSkeleton(player)
+        end
+        return
+    end
+
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        for player, _ in pairs(Caches.SkeletonCache) do
+            ClearSkeleton(player)
+        end
+        return
+    end
+
+    local localRoot = LocalPlayer.Character.HumanoidRootPart
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+
+        if not player.Character or not player.Character:FindFirstChild('HumanoidRootPart') or not player.Character:FindFirstChild('Humanoid') then
+            ClearSkeleton(player)
+            continue
+        end
+
+        local character = player.Character
+        local humanoid = character.Humanoid
+        if humanoid.Health <= 0 then
+            ClearSkeleton(player)
+            continue
+        end
+
+        local targetRoot = character.HumanoidRootPart
+        local distance = (localRoot.Position - targetRoot.Position).Magnitude
+        if distance > 325 then
+            ClearSkeleton(player)
+            continue
+        end
+
+        if Config.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+            ClearSkeleton(player)
+            continue
+        end
+
+        if (BulletTPEnabled and player == LastTeleportedPlayer) or (SilentAimEnabled and player == LastSilentAimPlayer) then
+            ClearSkeleton(player)
+            continue
+        end
+
+        if not Caches.SkeletonCache[player] then
+            Caches.SkeletonCache[player] = CreateSkeleton(player)
+        end
+
+        local skeleton = Caches.SkeletonCache[player]
+        local parts = {
+            Head = character:FindFirstChild("Head"),
+            Neck = character:FindFirstChild("Neck") or character:FindFirstChild("Head"),
+            UpperTorso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso"),
+            LowerTorso = character:FindFirstChild("LowerTorso") or character:FindFirstChild("HumanoidRootPart"),
+            LeftUpperArm = character:FindFirstChild("LeftUpperArm"),
+            LeftLowerArm = character:FindFirstChild("LeftLowerArm"),
+            LeftHand = character:FindFirstChild("LeftHand"),
+            RightUpperArm = character:FindFirstChild("RightUpperArm"),
+            RightLowerArm = character:FindFirstChild("RightLowerArm"),
+            RightHand = character:FindFirstChild("RightHand"),
+            LeftUpperLeg = character:FindFirstChild("LeftUpperLeg"),
+            LeftLowerLeg = character:FindFirstChild("LeftLowerLeg"),
+            LeftFoot = character:FindFirstChild("LeftFoot"),
+            RightUpperLeg = character:FindFirstChild("RightUpperLeg"),
+            RightLowerLeg = character:FindFirstChild("RightLowerLeg"),
+            RightFoot = character:FindFirstChild("RightFoot"),
+        }
+
+        if not (parts.Head and parts.UpperTorso and parts.LowerTorso and parts.LeftUpperArm and parts.LeftLowerArm and parts.LeftHand and parts.RightUpperArm and parts.RightLowerArm and parts.RightHand and parts.LeftUpperLeg and parts.LeftLowerLeg and parts.LeftFoot and parts.RightUpperLeg and parts.RightLowerLeg and parts.RightFoot) then
+            ClearSkeleton(player)
+            continue
+        end
+
+        local headPos, headOnScreen = Camera:WorldToViewportPoint(parts.Head.Position)
+        local neckPos, neckOnScreen = Camera:WorldToViewportPoint(parts.Neck.Position)
+        local upperTorsoPos, upperTorsoOnScreen = Camera:WorldToViewportPoint(parts.UpperTorso.Position)
+        local lowerTorsoPos, lowerTorsoOnScreen = Camera:WorldToViewportPoint(parts.LowerTorso.Position)
+        local leftUpperArmPos, leftUpperArmOnScreen = Camera:WorldToViewportPoint(parts.LeftUpperArm.Position)
+        local leftLowerArmPos, leftLowerArmOnScreen = Camera:WorldToViewportPoint(parts.LeftLowerArm.Position)
+        local leftHandPos, leftHandOnScreen = Camera:WorldToViewportPoint(parts.LeftHand.Position)
+        local rightUpperArmPos, rightUpperArmOnScreen = Camera:WorldToViewportPoint(parts.RightUpperArm.Position)
+        local rightLowerArmPos, rightLowerArmOnScreen = Camera:WorldToViewportPoint(parts.RightLowerArm.Position)
+        local rightHandPos, rightHandOnScreen = Camera:WorldToViewportPoint(parts.RightHand.Position)
+        local leftUpperLegPos, leftUpperLegOnScreen = Camera:WorldToViewportPoint(parts.LeftUpperLeg.Position)
+        local leftLowerLegPos, leftLowerLegOnScreen = Camera:WorldToViewportPoint(parts.LeftLowerLeg.Position)
+        local leftFootPos, leftFootOnScreen = Camera:WorldToViewportPoint(parts.LeftFoot.Position)
+        local rightUpperLegPos, rightUpperLegOnScreen = Camera:WorldToViewportPoint(parts.RightUpperLeg.Position)
+        local rightLowerLegPos, rightLowerLegOnScreen = Camera:WorldToViewportPoint(parts.RightLowerLeg.Position)
+        local rightFootPos, rightFootOnScreen = Camera:WorldToViewportPoint(parts.RightFoot.Position)
+
+        if headOnScreen and neckOnScreen then
+            skeleton.HeadToNeck.From = Vector2.new(headPos.X, headPos.Y)
+            skeleton.HeadToNeck.To = Vector2.new(neckPos.X, neckPos.Y)
+            skeleton.HeadToNeck.Visible = true
+        else
+            skeleton.HeadToNeck.Visible = false
+        end
+
+        if neckOnScreen and upperTorsoOnScreen then
+            skeleton.NeckToUpperTorso.From = Vector2.new(neckPos.X, neckPos.Y)
+            skeleton.NeckToUpperTorso.To = Vector2.new(upperTorsoPos.X, upperTorsoPos.Y)
+            skeleton.NeckToUpperTorso.Visible = true
+        else
+            skeleton.NeckToUpperTorso.Visible = false
+        end
+
+        if upperTorsoOnScreen and lowerTorsoOnScreen then
+            skeleton.UpperTorsoToLowerTorso.From = Vector2.new(upperTorsoPos.X, upperTorsoPos.Y)
+            skeleton.UpperTorsoToLowerTorso.To = Vector2.new(lowerTorsoPos.X, lowerTorsoPos.Y)
+            skeleton.UpperTorsoToLowerTorso.Visible = true
+        else
+            skeleton.UpperTorsoToLowerTorso.Visible = false
+        end
+
+        if upperTorsoOnScreen and leftUpperArmOnScreen then
+            skeleton.UpperTorsoToLeftUpperArm.From = Vector2.new(upperTorsoPos.X, upperTorsoPos.Y)
+            skeleton.UpperTorsoToLeftUpperArm.To = Vector2.new(leftUpperArmPos.X, leftUpperArmPos.Y)
+            skeleton.UpperTorsoToLeftUpperArm.Visible = true
+        else
+            skeleton.UpperTorsoToLeftUpperArm.Visible = false
+        end
+
+        if leftUpperArmOnScreen and leftLowerArmOnScreen then
+            skeleton.LeftUpperArmToLeftLowerArm.From = Vector2.new(leftUpperArmPos.X, leftUpperArmPos.Y)
+            skeleton.LeftUpperArmToLeftLowerArm.To = Vector2.new(leftLowerArmPos.X, leftLowerArmPos.Y)
+            skeleton.LeftUpperArmToLeftLowerArm.Visible = true
+        else
+            skeleton.LeftUpperArmToLeftLowerArm.Visible = false
+        end
+
+        if leftLowerArmOnScreen and leftHandOnScreen then
+            skeleton.LeftLowerArmToLeftHand.From = Vector2.new(leftLowerArmPos.X, leftLowerArmPos.Y)
+            skeleton.LeftLowerArmToLeftHand.To = Vector2.new(leftHandPos.X, leftHandPos.Y)
+            skeleton.LeftLowerArmToLeftHand.Visible = true
+        else
+            skeleton.LeftLowerArmToLeftHand.Visible = false
+        end
+
+        if upperTorsoOnScreen and rightUpperArmOnScreen then
+            skeleton.UpperTorsoToRightUpperArm.From = Vector2.new(upperTorsoPos.X, upperTorsoPos.Y)
+            skeleton.UpperTorsoToRightUpperArm.To = Vector2.new(rightUpperArmPos.X, rightUpperArmPos.Y)
+            skeleton.UpperTorsoToRightUpperArm.Visible = true
+        else
+            skeleton.UpperTorsoToRightUpperArm.Visible = false
+        end
+
+        if rightUpperArmOnScreen and rightLowerArmOnScreen then
+            skeleton.RightUpperArmToRightLowerArm.From = Vector2.new(rightUpperArmPos.X, rightUpperArmPos.Y)
+            skeleton.RightUpperArmToRightLowerArm.To = Vector2.new(rightLowerArmPos.X, rightLowerArmPos.Y)
+            skeleton.RightUpperArmToRightLowerArm.Visible = true
+        else
+            skeleton.RightUpperArmToRightLowerArm.Visible = false
+        end
+
+        if rightLowerArmOnScreen and rightHandOnScreen then
+            skeleton.RightLowerArmToRightHand.From = Vector2.new(rightLowerArmPos.X, rightLowerArmPos.Y)
+            skeleton.RightLowerArmToRightHand.To = Vector2.new(rightHandPos.X, rightHandPos.Y)
+            skeleton.RightLowerArmToRightHand.Visible = true
+        else
+            skeleton.RightLowerArmToRightHand.Visible = false
+        end
+
+        if lowerTorsoOnScreen and leftUpperLegOnScreen then
+            skeleton.LowerTorsoToLeftUpperLeg.From = Vector2.new(lowerTorsoPos.X, lowerTorsoPos.Y)
+            skeleton.LowerTorsoToLeftUpperLeg.To = Vector2.new(leftUpperLegPos.X, leftUpperLegPos.Y)
+            skeleton.LowerTorsoToLeftUpperLeg.Visible = true
+        else
+            skeleton.LowerTorsoToLeftUpperLeg.Visible = false
+        end
+
+        if leftUpperLegOnScreen and leftLowerLegOnScreen then
+            skeleton.LeftUpperLegToLeftLowerLeg.From = Vector2.new(leftUpperLegPos.X, leftUpperLegPos.Y)
+            skeleton.LeftUpperLegToLeftLowerLeg.To = Vector2.new(leftLowerLegPos.X, leftLowerLegPos.Y)
+            skeleton.LeftUpperLegToLeftLowerLeg.Visible = true
+        else
+            skeleton.LeftUpperLegToLeftLowerLeg.Visible = false
+        end
+
+        if leftLowerLegOnScreen and leftFootOnScreen then
+            skeleton.LeftLowerLegToLeftFoot.From = Vector2.new(leftLowerLegPos.X, leftLowerLegPos.Y)
+            skeleton.LeftLowerLegToLeftFoot.To = Vector2.new(leftFootPos.X, leftFootPos.Y)
+            skeleton.LeftLowerLegToLeftFoot.Visible = true
+        else
+            skeleton.LeftLowerLegToLeftFoot.Visible = false
+        end
+
+        if lowerTorsoOnScreen and rightUpperLegOnScreen then
+            skeleton.LowerTorsoToRightUpperLeg.From = Vector2.new(lowerTorsoPos.X, lowerTorsoPos.Y)
+            skeleton.LowerTorsoToRightUpperLeg.To = Vector2.new(rightUpperLegPos.X, rightUpperLegPos.Y)
+            skeleton.LowerTorsoToRightUpperLeg.Visible = true
+        else
+            skeleton.LowerTorsoToRightUpperLeg.Visible = false
+        end
+
+        if rightUpperLegOnScreen and rightLowerLegOnScreen then
+            skeleton.RightUpperLegToRightLowerLeg.From = Vector2.new(rightUpperLegPos.X, rightUpperLegPos.Y)
+            skeleton.RightUpperLegToRightLowerLeg.To = Vector2.new(rightLowerLegPos.X, rightLowerLegPos.Y)
+            skeleton.RightUpperLegToRightLowerLeg.Visible = true
+        else
+            skeleton.RightUpperLegToRightLowerLeg.Visible = false
+        end
+
+        if rightLowerLegOnScreen and rightFootOnScreen then
+            skeleton.RightLowerLegToRightFoot.From = Vector2.new(rightLowerLegPos.X, rightLowerLegPos.Y)
+            skeleton.RightLowerLegToRightFoot.To = Vector2.new(rightFootPos.X, rightFootPos.Y)
+            skeleton.RightLowerLegToRightFoot.Visible = true
+        else
+            skeleton.RightLowerLegToRightFoot.Visible = false
+        end
+    end
+end
+
+local function UpdateHealthESP()
+    if not HealthESPEnabled then
+        for player, _ in pairs(Caches.HealthCache) do
+            ClearHealthESP(player)
+        end
+        return
+    end
+
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        for player, _ in pairs(Caches.HealthCache) do
+            ClearHealthESP(player)
+        end
+        return
+    end
+
+    local localRoot = LocalPlayer.Character.HumanoidRootPart
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+
+        if not player.Character or not player.Character:FindFirstChild('HumanoidRootPart') or not player.Character:FindFirstChild('Humanoid') then
+            ClearHealthESP(player)
+            continue
+        end
+
+        local character = player.Character
+        local humanoid = character.Humanoid
+        if humanoid.Health <= 0 then
+            ClearHealthESP(player)
+            continue
+        end
+
+        local targetRoot = character.HumanoidRootPart
+        local distance = (localRoot.Position - targetRoot.Position).Magnitude
+        if distance > 325 then
+            ClearHealthESP(player)
+            continue
+        end
+
+        if Config.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+            ClearHealthESP(player)
+            continue
+        end
+
+        if (BulletTPEnabled and player == LastTeleportedPlayer) or (SilentAimEnabled and player == LastSilentAimPlayer) then
+            ClearHealthESP(player)
+            continue
+        end
+
+        if not Caches.HealthCache[player] then
+            Caches.HealthCache[player] = CreateHealthESP(player)
+        end
+
+        local health = Caches.HealthCache[player]
+        local headPos, onScreen = Camera:WorldToViewportPoint(targetRoot.Position - Vector3.new(0, 3, 0))
+        if onScreen then
+            local healthPercentage = humanoid.Health / humanoid.MaxHealth
+            health.BarBackground.Position = Vector2.new(headPos.X - 25, headPos.Y - 30)
+            health.BarBackground.Visible = true
+            health.Bar.Size = Vector2.new(50 * healthPercentage, 5)
+            health.Bar.Position = Vector2.new(headPos.X - 25, headPos.Y - 30)
+            health.Bar.Color = Color3.new(1 - healthPercentage, healthPercentage, 0)
+            health.Bar.Visible = true
+            health.Text.Text = tostring(math.floor(healthPercentage * 100)) .. "%"
+            health.Text.Position = Vector2.new(headPos.X, headPos.Y - 45)
+            health.Text.Visible = true
+        else
+            health.BarBackground.Visible = false
+            health.Bar.Visible = false
+            health.Text.Visible = false
+        end
+    end
+end
+
+local function UpdateChams()
+    if not ChamsEnabled then
+        for player, _ in pairs(Caches.ChamsCache) do
+            ClearChams(player)
+        end
+        return
+    end
+
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+        for player, _ in pairs(Caches.ChamsCache) do
+            ClearChams(player)
+        end
+        return
+    end
+
+    local localRoot = LocalPlayer.Character.HumanoidRootPart
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+
+        if not player.Character or not player.Character:FindFirstChild('HumanoidRootPart') or not player.Character:FindFirstChild('Humanoid') then
+            ClearChams(player)
+            continue
+        end
+
+        local character = player.Character
+        local humanoid = character.Humanoid
+        if humanoid.Health <= 0 then
+            ClearChams(player)
+            continue
+        end
+
+        local targetRoot = character.HumanoidRootPart
+        local distance = (localRoot.Position - targetRoot.Position).Magnitude
+        if distance > 325 then
+            ClearChams(player)
+            continue
+        end
+
+        if Config.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+            ClearChams(player)
+            continue
+        end
+
+        if (BulletTPEnabled and player == LastTeleportedPlayer) or (SilentAimEnabled and player == LastSilentAimPlayer) then
+            ClearChams(player)
+            continue
+        end
+
+        if not Caches.ChamsCache[player] then
+            Caches.ChamsCache[player] = CreateChams(player)
+        end
+    end
+end
+
+Players.PlayerRemoving:Connect(function(player)
+    SafeExecute(function()
+        if LastTeleportedPlayer == player then
+            LastTeleportedPlayer = nil
+            LastTeleportedPlayerOriginalPos = nil
+        end
+        if LastSilentAimPlayer == player then
+            LastSilentAimPlayer = nil
+            LastSilentAimPlayerOriginalPos = nil
+        end
+        ClearAllESP(player)
+    end)
+end)
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(character)
+        character.AncestryChanged:Connect(function()
+            if not character:IsDescendantOf(Workspace) then
+                SafeExecute(function()
+                    ClearAllESP(player)
+                end)
+            end
+        end)
+        local humanoid = character:FindFirstChild('Humanoid')
+        if humanoid then
+            humanoid.Died:Connect(function()
+                SafeExecute(function()
+                    ClearAllESP(player)
+                    if player == LastTeleportedPlayer then
+                        LastTeleportedPlayer = nil
+                        LastTeleportedPlayerOriginalPos = nil
+                    end
+                    if player == LastSilentAimPlayer then
+                        LastSilentAimPlayer = nil
+                        LastSilentAimPlayerOriginalPos = nil
+                    end
+                end)
+            end)
+        end
+    end)
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        IsRightClickHeld = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        IsRightClickHeld = false
+        AimbotTarget = nil
+    end
+end)
+
+local Window = Library:CreateWindow({
+    Title = 'Big Paintball 2 X',
+    Center = true,
+    AutoShow = true,
+    TabPadding = 8,
+    MenuFadeTime = 0.2,
+})
+
+local Tabs = {
+    Legit = Window:AddTab('Legit'),
+    Rage = Window:AddTab('Rage'),
+    ESP = Window:AddTab('ESP'),
+    Exploits = Window:AddTab('Exploits'),
+    Settings = Window:AddTab('UI Settings'),
+}
+
+local LegitGroup = Tabs.Legit:AddLeftGroupbox('Legit Controls')
+
+LegitGroup:AddToggle('AimbotToggle', {
+    Text = 'Enable Aimbot',
+    Default = false,
+    Callback = function(Value)
+        AimbotEnabled = Value
+        if not AimbotEnabled then
+            AimbotTarget = nil
+        end
+    end,
+})
+
+LegitGroup:AddToggle('PredictionToggle', {
+    Text = 'Enable Prediction',
+    Default = false,
+    Callback = function(Value)
+        PredictionEnabled = Value
+    end,
+})
+
+LegitGroup:AddSlider('PredictionFactorSlider', {
+    Text = 'Prediction Factor',
+    Default = Config.PredictionFactor,
+    Min = 0.1,
+    Max = 2.0,
+    Rounding = 1,
+    Suffix = '',
+    Callback = function(Value)
+        Config.PredictionFactor = Value
+    end,
+})
+
+LegitGroup:AddSlider('SmoothingSlider', {
+    Text = 'Smoothing',
+    Default = Config.Smoothing,
+    Min = 0,
+    Max = 20,
+    Rounding = 0,
+    Suffix = '',
+    Callback = function(Value)
+        Config.Smoothing = Value
+    end,
+})
+
+local RageGroup = Tabs.Rage:AddLeftGroupbox('Rage Controls')
+
+RageGroup:AddToggle('SilentAimToggle', {
+    Text = 'Enable Silent Aim',
+    Default = false,
+    Callback = function(Value)
+        SilentAimEnabled = Value
+        if not SilentAimEnabled then
+            if
+                LastSilentAimPlayer
+                and LastSilentAimPlayer.Character
+                and LastSilentAimPlayer.Character:FindFirstChild(
+                    'HumanoidRootPart'
+                )
+            then
+                local hitPart = LastSilentAimPlayer.Character:FindFirstChild(
+                    Config.HitPart
+                ) or LastSilentAimPlayer.Character.HumanoidRootPart
+                hitPart.Anchored = false
+                hitPart.CanCollide = true
+                if LastSilentAimPlayerOriginalPos then
+                    hitPart.CFrame = CFrame.new(LastSilentAimPlayerOriginalPos)
+                end
+                LastPositions[hitPart] = nil
+                SetPlayerTransparency(LastSilentAimPlayer, 0)
+                RemoveAdornments()
+                LastSilentAimPlayer = nil
+                LastSilentAimPlayerOriginalPos = nil
+            end
+        end
+    end,
+})
+
+RageGroup:AddToggle('BulletTPToggle', {
+    Text = 'Wallbang',
+    Default = false,
+    Callback = function(Value)
+        BulletTPEnabled = Value
+        if not BulletTPEnabled then
+            if
+                LastTeleportedPlayer
+                and LastTeleportedPlayer.Character
+                and LastTeleportedPlayer.Character:FindFirstChild(
+                    'HumanoidRootPart'
+                )
+            then
+                local hitPart = LastTeleportedPlayer.Character:FindFirstChild(
+                    Config.HitPart
+                ) or LastTeleportedPlayer.Character.HumanoidRootPart
+                hitPart.Anchored = false
+                hitPart.CanCollide = true
+                if LastTeleportedPlayerOriginalPos then
+                    hitPart.CFrame = CFrame.new(LastTeleportedPlayerOriginalPos)
+                end
+                LastPositions[hitPart] = nil
+                SetPlayerTransparency(LastTeleportedPlayer, 0)
+                RemoveAdornments()
+                LastTeleportedPlayer = nil
+                LastTeleportedPlayerOriginalPos = nil
+            end
+        end
+    end,
+})
+
+RageGroup:AddToggle('FOVToggle', {
+    Text = 'Show FOV Circle',
+    Default = false,
+    Callback = function(Value)
+        FOVEnabled = Value
+        if not FOVEnabled and FOVCircle then
+            FOVCircle.Visible = false
+        end
+    end,
+})
+
+RageGroup:AddSlider('FOVSizeSlider', {
+    Text = 'FOV Size',
+    Default = Config.FOVRadius,
+    Min = 50,
+    Max = 300,
+    Rounding = 0,
+    Suffix = '',
+    Callback = function(Value)
+        Config.FOVRadius = Value
+    end,
+})
+
+local ESPGroup = Tabs.ESP:AddLeftGroupbox('ESP Controls')
+
+ESPGroup:AddToggle('ESPCustomToggle', {
+    Text = 'Box ESP',
+    Default = false,
+    Callback = function(Value)
+        ESPCustomEnabled = Value
+        if not ESPCustomEnabled then
+            for player, esp in pairs(Caches.ESPCache) do
+                esp.Box.Visible = false
+            end
+        end
+    end,
+})
+
+ESPGroup:AddToggle('NameESPToggle', {
+    Text = 'Name ESP',
+    Default = false,
+    Callback = function(Value)
+        NameESPEnabled = Value
+        if not NameESPEnabled then
+            for player, esp in pairs(Caches.ESPCache) do
+                esp.Name.Visible = false
+            end
+        end
+    end,
+})
+
+ESPGroup:AddToggle('DistanceESPToggle', {
+    Text = 'Distance ESP',
+    Default = false,
+    Callback = function(Value)
+        DistanceESPEnabled = Value
+        if not DistanceESPEnabled then
+            for player, esp in pairs(Caches.ESPCache) do
+                esp.Distance.Visible = false
+            end
+        end
+    end,
+})
+
+ESPGroup:AddToggle('SkeletonESPToggle', {
+    Text = 'Skeleton ESP',
+    Default = false,
+    Callback = function(Value)
+        SkeletonESPEnabled = Value
+        if not SkeletonESPEnabled then
+            for player, _ in pairs(Caches.SkeletonCache) do
+                ClearSkeleton(player)
+            end
+        end
+    end,
+})
+
+ESPGroup:AddToggle('HealthESPToggle', {
+    Text = 'Health ESP',
+    Default = false,
+    Callback = function(Value)
+        HealthESPEnabled = Value
+        if not HealthESPEnabled then
+            for player, _ in pairs(Caches.HealthCache) do
+                ClearHealthESP(player)
+            end
+        end
+    end,
+})
+
+ESPGroup:AddToggle('ChamsToggle', {
+    Text = 'Chams',
+    Default = false,
+    Callback = function(Value)
+        ChamsEnabled = Value
+        if not ChamsEnabled then
+            for player, _ in pairs(Caches.ChamsCache) do
+                ClearChams(player)
+            end
+        end
+    end,
+})
+
+ESPGroup:AddToggle('ESPTeamCheckToggle', {
+    Text = 'Team Check',
+    Default = Config.TeamCheck,
+    Callback = function(Value)
+        Config.TeamCheck = Value
+    end,
+})
+
+local ExploitsGroup = Tabs.Exploits:AddLeftGroupbox('Exploit Controls')
+
+ExploitsGroup:AddToggle('RapidFireToggle', {
+    Text = 'Rapid Fire [BUGGY]',
+    Default = false,
+    Callback = function(Value)
+        RapidFireEnabled = Value
+    end,
+})
+
+ExploitsGroup:AddSlider('RapidFireAmountSlider', {
+    Text = 'Rapid Fire Amount',
+    Default = Config.RapidFireAmount,
+    Min = 100,
+    Max = 5000,
+    Rounding = 0,
+    Suffix = '',
+    Callback = function(Value)
+        Config.RapidFireAmount = Value
+    end,
+})
+
+ExploitsGroup:AddToggle('SpinbotToggle', {
+    Text = 'Spinbot',
+    Default = false,
+    Callback = function(Value)
+        SpinbotEnabled = Value
+    end,
+})
+
+ExploitsGroup:AddSlider('SpinbotSpeedSlider', {
+    Text = 'Spinbot Speed',
+    Default = Config.SpinbotSpeed,
+    Min = 10,
+    Max = 360,
+    Rounding = 0,
+    Suffix = '',
+    Callback = function(Value)
+        Config.SpinbotSpeed = Value
+    end,
+})
+
+ExploitsGroup:AddToggle('KillAllToggle', {
+    Text = 'Kill All',
+    Default = false,
+    Callback = function(Value)
+        KillAllEnabled = Value
+        if not KillAllEnabled then
+            RestoreEntities()
+        end
+    end,
+})
+
+local MenuGroup = Tabs.Settings:AddLeftGroupbox('Menu')
+
+MenuGroup:AddButton({
+    Text = 'Unload',
+    Func = function()
+        Library:Unload()
+    end,
+    Tooltip = 'Unloads the script',
+})
+
+MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', {
+    Default = 'RightShift',
+    NoUI = true,
+    Text = 'Menu keybind',
+})
+
+Library.ToggleKeybind = Options.MenuKeybind
+
+Library:SetWatermarkVisibility(true)
+Library:SetWatermark('Big Paintball 2 X | Made by zixy.py2')
+
+Library:OnUnload(function()
+    if FOVCircle then
+        FOVCircle:Remove()
+    end
+    RestoreEntities()
+    for player, _ in pairs(Caches.ESPCache) do
+        ClearESP(player)
+    end
+    for player, _ in pairs(Caches.SkeletonCache) do
+        ClearSkeleton(player)
+    end
+    for player, _ in pairs(Caches.HealthCache) do
+        ClearHealthESP(player)
+    end
+    for player, _ in pairs(Caches.ChamsCache) do
+        ClearChams(player)
+    end
+    Library.Unloaded = true
+end)
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
+SaveManager:BuildConfigSection(Tabs.Settings)
+ThemeManager:ApplyToTab(Tabs.Settings)
+SaveManager:LoadAutoloadConfig()
+
+Library:Notify(
+    'Script Loaded',
+    'Big Paintball 2 X is ready! Press RightShift to toggle GUI.',
+    5
+)
+
+RunService.RenderStepped:Connect(function()
+    SafeExecute(TeleportPlayerInFOV)
+    SafeExecute(SilentAimTeleport)
+    SafeExecute(UpdateAimbot)
+    SafeExecute(UpdateFOVCircle)
+    SafeExecute(RemoveAdornments)
+    SafeExecute(UpdateSpinbot)
+    SafeExecute(UpdateKillAll)
+    SafeExecute(UpdateESP)
+    SafeExecute(UpdateSkeletonESP)
+    SafeExecute(UpdateHealthESP)
+    SafeExecute(UpdateChams)
+end)
