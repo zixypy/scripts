@@ -828,7 +828,7 @@ local Tabs = {
 local SilentAimGroup = Tabs.Rage:AddLeftGroupbox('Silent Aim Settings')
 local FOVGroup = Tabs.Rage:AddRightGroupbox('FOV & Targeting')
 SilentAimGroup:AddToggle('SilentWallbangToggle', {
-    Text = 'Silent + Wallbang',
+    Text = 'Silent + Semi Wallbang',
     Default = false,
     Tooltip = 'Enables silent aim that sometimes shoots through walls',
     Callback = function(v) silentaim = v end
