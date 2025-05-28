@@ -36,7 +36,7 @@ local tracerOrigin = 'Bottom Screen'
 local chamsColor = Color3.new(1, 0, 0)
 local ragebotEnabled = false
 local isRagebotShooting = false
-local teamCheck = false
+local teamCheck = true
 local projectileSpeed = 1000
 
 local weapons, camos = {}, {}
@@ -142,7 +142,8 @@ local function getClosestPlayer()
             if not character:FindFirstChild("HumanoidRootPart") or not character:FindFirstChild("Humanoid") then continue end
             local humanoid = character.Humanoid
             if humanoid.Health <= 0 then continue end
-            if teamCheck and player.Team and actualPlayer.Team == player.Team then continue end
+            local team_attribute = actualPlayer:GetAttribute("Team")
+            if teamCheck and team_attribute and team_attribute == player:GetAttribute("Team") then continue end
             local w2s, onscreen = camera:WorldToViewportPoint(character.Head.Position)
             if onscreen then
                 local dist = (vector2(w2s.X, w2s.Y) - (camera.ViewportSize / 2)).Magnitude
@@ -419,13 +420,14 @@ local function updateESP()
             clearESP(character)
             continue
         end
-        local targetRoot = character.HumanoidRootPart
-        local distance = (localRoot.Position - targetRoot.Position).Magnitude
-        if distance > espDistance then
+        local team_attribute = actualPlayer:GetAttribute("Team")
+        if teamCheck and team_attribute and team_attribute == player:GetAttribute("Team") then
             clearESP(character)
             continue
         end
-        if teamCheck and player.Team and actualPlayer.Team == player.Team then
+        local targetRoot = character.HumanoidRootPart
+        local distance = (localRoot.Position - targetRoot.Position).Magnitude
+        if distance > espDistance then
             clearESP(character)
             continue
         end
@@ -484,13 +486,14 @@ local function updateSkeletonESP()
             clearSkeleton(character)
             continue
         end
-        local targetRoot = character.HumanoidRootPart
-        local distance = (localRoot.Position - targetRoot.Position).Magnitude
-        if distance > espDistance then
+        local team_attribute = actualPlayer:GetAttribute("Team")
+        if teamCheck and team_attribute and team_attribute == player:GetAttribute("Team") then
             clearSkeleton(character)
             continue
         end
-        if teamCheck and player.Team and actualPlayer.Team == player.Team then
+        local targetRoot = character.HumanoidRootPart
+        local distance = (localRoot.Position - targetRoot.Position).Magnitude
+        if distance > espDistance then
             clearSkeleton(character)
             continue
         end
@@ -670,13 +673,14 @@ local function updateHealthESP()
             clearHealthESP(character)
             continue
         end
-        local targetRoot = character.HumanoidRootPart
-        local distance = (localRoot.Position - targetRoot.Position).Magnitude
-        if distance > espDistance then
+        local team_attribute = actualPlayer:GetAttribute("Team")
+        if teamCheck and team_attribute and team_attribute == player:GetAttribute("Team") then
             clearHealthESP(character)
             continue
         end
-        if teamCheck and player.Team and actualPlayer.Team == player.Team then
+        local targetRoot = character.HumanoidRootPart
+        local distance = (localRoot.Position - targetRoot.Position).Magnitude
+        if distance > espDistance then
             clearHealthESP(character)
             continue
         end
@@ -739,13 +743,14 @@ local function updateTracerESP()
             clearTracer(character)
             continue
         end
-        local targetHead = character:FindFirstChild("Head") or character.HumanoidRootPart
-        local distance = (localRoot.Position - targetHead.Position).Magnitude
-        if distance > espDistance then
+        local team_attribute = actualPlayer:GetAttribute("Team")
+        if teamCheck and team_attribute and team_attribute == player:GetAttribute("Team") then
             clearTracer(character)
             continue
         end
-        if teamCheck and player.Team and actualPlayer.Team == player.Team then
+        local targetHead = character:FindFirstChild("Head") or character.HumanoidRootPart
+        local distance = (localRoot.Position - targetHead.Position).Magnitude
+        if distance > espDistance then
             clearTracer(character)
             continue
         end
@@ -786,13 +791,14 @@ local function updateChams()
             clearChams(character)
             continue
         end
-        local targetRoot = character.HumanoidRootPart
-        local distance = (localRoot.Position - targetRoot.Position).Magnitude
-        if distance > espDistance then
+        local team_attribute = actualPlayer:GetAttribute("Team")
+        if teamCheck and team_attribute and team_attribute == player:GetAttribute("Team") then
             clearChams(character)
             continue
         end
-        if teamCheck and player.Team and actualPlayer.Team == player.Team then
+        local targetRoot = character.HumanoidRootPart
+        local distance = (localRoot.Position - targetRoot.Position).Magnitude
+        if distance > espDistance then
             clearChams(character)
             continue
         end
@@ -957,6 +963,13 @@ VisualsGroup:AddToggle('ChamsToggle', {
         end
     end
 })
+VisualsGroup:AddToggle('TeamCheckToggle', {
+    Text = 'Team Check',
+    Default = false,
+    Callback = function(Value)
+        teamCheck = Value
+    end
+})
 VisualsGroup:AddDropdown('TracerOriginDropdown', {
     Text = 'Tracer Origin',
     Default = tracerOrigin,
@@ -965,7 +978,6 @@ VisualsGroup:AddDropdown('TracerOriginDropdown', {
         tracerOrigin = Value
     end
 })
-VisualsGroup:AddLabel('Team check broken :(')
 local CombatExploitsGroup = Tabs.Exploits:AddLeftGroupbox('Combat Exploits')
 CombatExploitsGroup:AddToggle('NoRecoilToggle', {
     Text = 'No Recoil',
@@ -996,14 +1008,11 @@ CombatExploitsGroup:AddButton({
 
 local PrimaryGroup = Tabs.Weapons:AddLeftGroupbox('Primary Weapon')
 local SecondaryGroup = Tabs.Weapons:AddRightGroupbox('Secondary Weapon')
+
 PrimaryGroup:AddDropdown('PrimaryWeaponDropdown', {
     Default = weapons[1],
     Values = weapons,
     Callback = function(v) primary = v end
-})
-PrimaryGroup:AddButton({
-    Text = 'Equip Primary Weapon',
-    Func = function() player:SetAttribute("Primary", primary) end
 })
 PrimaryGroup:AddDropdown('PrimaryCamoDropdown', {
     Text = 'Primary Camo',
@@ -1012,17 +1021,23 @@ PrimaryGroup:AddDropdown('PrimaryCamoDropdown', {
     Callback = function(v) primarycamo = v end
 })
 PrimaryGroup:AddButton({
-    Text = 'Equip Primary Camo',
-    Func = function() player:SetAttribute("PrimaryCamo", primarycamo) end
+    Text = 'Apply Weapon',
+    Func = function()
+        player:SetAttribute("Primary", primary)
+        player.Character.Humanoid.Health = 0
+    end
+})
+PrimaryGroup:AddButton({
+    Text = 'Apply Camo',
+    Func = function()
+        player:SetAttribute("PrimaryCamo", primarycamo)
+        player.Character.Humanoid.Health = 0
+    end
 })
 SecondaryGroup:AddDropdown('SecondaryWeaponDropdown', {
     Default = weapons[1],
     Values = weapons,
     Callback = function(v) secondary = v end
-})
-SecondaryGroup:AddButton({
-    Text = 'Equip Secondary Weapon',
-    Func = function() player:SetAttribute("Secondary", secondary) end
 })
 SecondaryGroup:AddDropdown('SecondaryCamoDropdown', {
     Text = 'Secondary Camo',
@@ -1031,26 +1046,19 @@ SecondaryGroup:AddDropdown('SecondaryCamoDropdown', {
     Callback = function(v) secondarycamo = v end
 })
 SecondaryGroup:AddButton({
-    Text = 'Equip Secondary Camo',
-    Func = function() player:SetAttribute("SecondaryCamo", secondarycamo) end
-})
-PrimaryGroup:AddButton({
-    Text = 'Apply',
+    Text = 'Apply Weapon',
     Func = function()
-        if player.Character and player.Character:FindFirstChild("Humanoid") then
-            player:Kick("Applied. Rejoin the game and re-execute!")
-        end
+        player:SetAttribute("Secondary", secondary)
+        player.Character.Humanoid.Health = 0
     end
 })
 SecondaryGroup:AddButton({
-    Text = 'Apply',
+    Text = 'Apply Camo',
     Func = function()
-        if player.Character and player.Character:FindFirstChild("Humanoid") then
-            player:Kick("Applied. Rejoin the game and re-execute!")
-        end
+        player:SetAttribute("SecondaryCamo", secondarycamo)
+        player.Character.Humanoid.Health = 0
     end
 })
-
 local MenuGroup = Tabs.Settings:AddLeftGroupbox('Menu')
 
 MenuGroup:AddButton({
@@ -1132,9 +1140,3 @@ rs.RenderStepped:Connect(function()
     updateTracerESP()
     updateChams()
 end)
-
-Library:Notify({
-    Title = 'Cheat Loaded',
-    Content = 'Gunfight Arena X is ready! Press RightShift to toggle GUI.',
-    Duration = 5
-})
