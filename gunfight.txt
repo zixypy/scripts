@@ -1038,7 +1038,7 @@ PrimaryGroup:AddButton({
     Text = 'Apply',
     Func = function()
         if player.Character and player.Character:FindFirstChild("Humanoid") then
-            player.Kick("Applied. Rejoin the game and re-execute!")
+            player:Kick("Applied. Rejoin the game and re-execute!")
         end
     end
 })
@@ -1046,7 +1046,7 @@ SecondaryGroup:AddButton({
     Text = 'Apply',
     Func = function()
         if player.Character and player.Character:FindFirstChild("Humanoid") then
-            player.Character.Humanoid.Health = 0
+            player:Kick("Applied. Rejoin the game and re-execute!")
         end
     end
 })
