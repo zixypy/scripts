@@ -59,12 +59,12 @@ if s then s.Changed:Connect(removeRecoil) end
 if m then m.Changed:Connect(removeRecoil) end
 
 local oldIndex
-oldIndex = hookmetamethod(game, "__index", LPH_NO_UPVALUES(function(self, prop)
+oldIndex = hookmetamethod(game, "__index", function(self, prop)
     if infiniteammo and tostring(self) == "StoredAmmo" and prop == "Value" then
         return math.huge
     end
     return oldIndex(self, prop)
-end))
+end)
 
 rs.RenderStepped:Connect(function()
     if infiniteammo and vortex.Enabled then
@@ -252,13 +252,13 @@ local getinfo = debug.getinfo
 local cframenew = CFrame.new
 
 local old_index
-old_index = hookmetamethod(game, "__index", LPH_NO_UPVALUES(function(self, index)
+old_index = hookmetamethod(game, "__index", function(self, index)
     local info = getinfo(3, "n")
     if info and info.name == "Fire" and index == "CFrame" and silentaim and closest_player and closest_player:FindFirstChild(hitpart) then
         return cframenew(closest_player[hitpart].Position)
     end
     return old_index(self, index)
-end))
+end)
 
 local function createESP(character)
     local esp = {
