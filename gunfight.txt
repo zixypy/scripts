@@ -1075,7 +1075,7 @@ MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', {
     NoUI = true,
 })
 
-Library.KeybindFrame.Visible = true
+Library.KeybindFrame.Visible = false
 Library.ToggleKeybind = Options.MenuKeybind
 
 ThemeManager:SetLibrary(Library)
