@@ -965,7 +965,7 @@ VisualsGroup:AddToggle('ChamsToggle', {
 })
 VisualsGroup:AddToggle('TeamCheckToggle', {
     Text = 'Team Check',
-    Default = false,
+    Default = true,
     Callback = function(Value)
         teamCheck = Value
     end
