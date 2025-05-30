@@ -1035,7 +1035,10 @@ PrimaryGroup:AddButton({
     end
 })
 PrimaryGroup:AddLabel(
-    'Please rejoin after applying any weapon!'
+    'Please rejoin after applying any'
+)
+PrimaryGroup:AddLabel(
+    'weapon!'
 )
 SecondaryGroup:AddDropdown('SecondaryWeaponDropdown', {
     Default = weapons[1],
