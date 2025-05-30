@@ -1034,9 +1034,9 @@ PrimaryGroup:AddButton({
         player.Character.Humanoid.Health = 0
     end
 })
-PrimaryGroup:AddLabel({
+PrimaryGroup:AddLabel(
     'Please rejoin after applying any weapon!'
-})
+)
 SecondaryGroup:AddDropdown('SecondaryWeaponDropdown', {
     Default = weapons[1],
     Values = weapons,
