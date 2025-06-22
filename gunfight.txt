@@ -1065,6 +1065,12 @@ SecondaryGroup:AddButton({
         player.Character.Humanoid.Health = 0
     end
 })
+SecondaryGroup:AddLabel(
+    'Please rejoin after applying any'
+)
+SecondaryGroup:AddLabel(
+    'weapon!'
+)
 local MenuGroup = Tabs.Settings:AddLeftGroupbox('Menu')
 
 MenuGroup:AddButton({
