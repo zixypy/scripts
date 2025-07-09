@@ -86,3 +86,15 @@ local Button = Tab:CreateButton({
         })
     end,
 })
+
+local Button = Tab:CreateButton({
+    Name = 'Copy Linkvertise',
+    Callback = function()
+        setclipboard('https://ads.luarmor.net/get_key?for=Zixy_X_Linkvertise-PjKvsYAUQzgh')
+        Rayfield:Notify({
+            Title = 'Copied',
+            Content = 'Key system URL copied to clipboard.',
+            Duration = 3,
+        })
+    end,
+})
